@@ -1,0 +1,590 @@
+package com.orbit.assistant;
+
+import android.content.Context;
+import android.graphics.Bitmap;
+
+import androidx.work.Constraints;
+import androidx.work.Data;
+import androidx.work.NetworkType;
+import androidx.work.ExistingWorkPolicy;
+import androidx.work.OneTimeWorkRequest;
+import androidx.work.WorkManager;
+
+import java.util.List;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.CopyOnWriteArrayList;
+
+/**
+ * Durable request broker shared by the Side-button sheet and the full Orbit app.
+ * WorkManager owns execution so a request can survive UI dismissal and process death.
+ */
+public final class OrbitRequestManager {
+    private OrbitRequestManager() {}
+
+    public interface Listener {
+        default void onStarted(String requestId) {}
+        default void onDelta(String requestId, String delta) {}
+        /**
+         * A short, safe status update for a request that is still running.
+         *
+         * <p>Purely observational, and the request id is what makes it safe: a surface compares it
+         * against the request it is currently showing and ignores anything else, so an update from
+         * a request the user has moved on from can never appear under a newer one. That comparison
+         * is on identity, never on text.
+         *
+         * <p>An implementation may only display this. It must not enqueue, retry, complete,
+         * persist, or execute anything, and nothing in the manager will let it: this channel has
+         * no path to the completion gate.
+         */
+        default void onThinking(String requestId, ThinkingUpdate update) {}
+        default void onSuccess(String requestId, AssistantReply reply) {}
+        default void onError(String requestId, String message) {}
+        /**
+         * The user stopped this request. {@code partialText} is whatever had already streamed and
+         * has already been persisted by the manager, or empty when nothing arrived in time.
+         */
+        default void onCancelled(String requestId, String partialText) {}
+    }
+
+    /**
+     * Cancels the durable work behind a request. Replaced in tests so cancellation can be proven
+     * without standing up a real WorkManager.
+     */
+    interface WorkCanceller {
+        void cancelUniqueWork(String uniqueWorkName);
+    }
+
+    private static final ConcurrentHashMap<String, CopyOnWriteArrayList<Listener>> LISTENERS = new ConcurrentHashMap<>();
+    /**
+     * Latest streamed snapshot per request. Deltas arrive as cumulative text, so the newest one is
+     * the whole partial answer, which is what a stopped request keeps.
+     */
+    private static final ConcurrentHashMap<String, String> PARTIALS = new ConcurrentHashMap<>();
+    /**
+     * The newest status update per running request, so a surface that attaches mid-flight has
+     * something to show at once instead of a blank line under a spinning indicator.
+     *
+     * <p>Deliberately in memory only, deliberately one entry per request, and deliberately cleared
+     * by {@link #forget} and by {@link #cancel} the moment a request becomes terminal. It is not
+     * conversation state: it never reaches {@link ConversationStore}, a notification, a backup, or
+     * a model, and losing all of it to process death is the correct outcome rather than a bug. The
+     * answer is durable; commentary about producing it does not need to be.
+     */
+    private static final ConcurrentHashMap<String, ThinkingUpdate> PROGRESS = new ConcurrentHashMap<>();
+    /**
+     * In-process record of stopped requests. The durable copy lives in {@link PendingRequestStore};
+     * this exists so a delta or completion already in flight is refused without a disk read.
+     */
+    private static final java.util.Set<String> CANCELLED = ConcurrentHashMap.newKeySet();
+    /**
+     * One lock per request, held across the whole of either finishing or cancelling it. This is
+     * what makes an accepted Stop and a completion that lands microseconds later mutually
+     * exclusive rather than interleaved.
+     */
+    private static final ConcurrentHashMap<String, Object> COMPLETION_LOCKS = new ConcurrentHashMap<>();
+
+    private static volatile WorkCanceller workCanceller;
+
+    static String uniqueWorkName(String requestId) { return "orbit-request-" + requestId; }
+
+    /** The object both {@link #completeIfNotCancelled} and {@link #cancel} synchronize on. */
+    private static Object completionLock(String requestId) {
+        return COMPLETION_LOCKS.computeIfAbsent(requestId == null ? "" : requestId, k -> new Object());
+    }
+
+    /**
+     * The one gate every irreversible completion step passes through.
+     *
+     * <p>{@code completion} runs only if the user has not stopped the request <em>and</em> no
+     * completion for it has already been written, and runs while the request's cancellation lock
+     * is held. A Stop arriving at the same instant either lands first and skips the work entirely
+     * or waits and then finds the request already finished. There is no interleaving, which is
+     * what keeps a stopped request from persisting an answer, running response actions, posting a
+     * completion notification, or speaking.
+     *
+     * <p>The completion claim is the other half, and it is what enforces
+     * "one accepted submission produces one request id produces at most one persisted assistant
+     * completion". It is durable, so a worker WorkManager re-runs after a process death finds the
+     * turn already answered instead of asking the model again and appending a second, similar
+     * reply to a single visible user message. A callback that fires twice is refused for the same
+     * reason, without anyone having to compare response text.
+     *
+     * @return true if the completion ran. False means the user's Stop won, or this request had
+     *         already been answered.
+     */
+    public static boolean completeIfNotCancelled(Context c, String requestId, Runnable completion) {
+        return completeIfNotCancelled(c, requestId, CompletionSource.UNKNOWN,
+                WorkerAttempt.NONE, completion);
+    }
+
+    /** As above, told which code path is calling and which run of the work it is on. */
+    public static boolean completeIfNotCancelled(Context c, String requestId,
+                                                 CompletionSource source, int workRun,
+                                                 Runnable completion) {
+        return completeIfNotCancelled(c, requestId, source, WorkerAttempt.of(workRun), completion);
+    }
+
+    /**
+     * As above, told which code path is calling and everything WorkManager can say about the
+     * worker execution it is calling from.
+     *
+     * <p>The guard itself is unchanged and stays unconditional — this only records who arrived at
+     * it. A refused completion previously left nothing behind but a counter, so the one seen on a
+     * real device could not be attributed to anything; now the refusal names its own origin, its
+     * run number, and whether that run had already been stopped.
+     *
+     * @param attempt the calling worker's run and stopped state, or {@link WorkerAttempt#NONE}
+     *                where there is no worker.
+     */
+    public static boolean completeIfNotCancelled(Context c, String requestId,
+                                                 CompletionSource source, WorkerAttempt attempt,
+                                                 Runnable completion) {
+        if (requestId == null || requestId.isEmpty() || completion == null) return false;
+        synchronized (completionLock(requestId)) {
+            if (isCancelled(c, requestId)) {
+                RequestTrace.completionIgnored(c, requestId, source, attempt,
+                        priorState(c, requestId), RequestTrace.REASON_CANCELLED);
+                return false;
+            }
+            if (c != null && !PendingRequestStore.claimCompletion(c, requestId)) {
+                RequestTrace.completionIgnored(c, requestId, source, attempt,
+                        priorState(c, requestId), RequestTrace.REASON_ALREADY_COMPLETED);
+                return false;
+            }
+            completion.run();
+            RequestTrace.completionCommitted(c, requestId, source, attempt);
+            return true;
+        }
+    }
+
+    /**
+     * Request ids a worker execution is currently running in this process.
+     *
+     * <p>This exists because stopping a {@code Worker} does not stop it. WorkManager sets the
+     * stopped flag, re-enqueues the work and lets the next execution start, but the thread already
+     * inside {@code doWork()} runs until it returns on its own — and for a cloud provider that
+     * means it stays blocked on an HTTP response that nothing is going to cancel. Two executions of
+     * one request then overlap, both ask the model, and whichever reaches the completion gate
+     * second is refused. The user never saw two answers, because
+     * {@link PendingRequestStore#claimCompletion} makes that impossible, but Orbit paid for two.
+     *
+     * <p>Deliberately in-process and deliberately not durable. It is not a lock and not a
+     * substitute for the completion claim: it exists only for the window in which two threads of
+     * one process are alive on the same request, which is precisely the window WorkManager creates.
+     * After a process death there is no such window and the set is empty again, which is the
+     * correct answer rather than a lost one.
+     */
+    private static final java.util.Set<String> RUNNING_ATTEMPTS = ConcurrentHashMap.newKeySet();
+
+    /**
+     * Claims this request for the calling worker execution.
+     *
+     * <p>WorkManager will not run one unique work item twice at once, so a second execution
+     * arriving here while the first is still registered can only mean the first was stopped and
+     * has not noticed yet. The newcomer stands down rather than starting a second model call; the
+     * execution already in flight still holds a live provider request and will finish it.
+     *
+     * @return false if an earlier execution of this request is still running in this process.
+     */
+    static boolean beginWorkerAttempt(String requestId) {
+        return requestId != null && !requestId.isEmpty() && RUNNING_ATTEMPTS.add(requestId);
+    }
+
+    /** Releases the claim. Always called from a {@code finally}, including on the abandon paths. */
+    static void endWorkerAttempt(String requestId) {
+        if (requestId != null) RUNNING_ATTEMPTS.remove(requestId);
+    }
+
+    /** Whether a worker execution is running this request in this process right now. */
+    public static boolean hasRunningWorkerAttempt(String requestId) {
+        return requestId != null && RUNNING_ATTEMPTS.contains(requestId);
+    }
+
+    /**
+     * What the request already was when a completion for it was refused.
+     *
+     * <p>Read only on the refusal path, which is rare, so the disk read costs nothing that
+     * matters. "committed" is reported separately from the status because they answer different
+     * questions: the status is how the request ended, and the claim is whether an answer for it
+     * had already been written.
+     */
+    private static String priorState(Context c, String requestId) {
+        PendingRequestStore.Item item = c == null ? null : PendingRequestStore.load(c, requestId);
+        if (item == null) return "missing";
+        return item.committed ? "committed-" + item.status : item.status;
+    }
+
+    /** True once the user's Stop has been accepted for this request, in this process. */
+    public static boolean isCancelled(String requestId) {
+        return requestId != null && CANCELLED.contains(requestId);
+    }
+
+    /** True for a request stopped in this process or in an earlier one. */
+    public static boolean isCancelled(Context c, String requestId) {
+        if (isCancelled(requestId)) return true;
+        return c != null && requestId != null && PendingRequestStore.isCancelled(c, requestId);
+    }
+
+    public static String enqueue(Context c, String conversationId, String prompt, String screenText, Bitmap screenshot,
+                                 boolean voiceRequest, boolean draftReply) {
+        return enqueue(c, conversationId, prompt, screenText, screenshot, voiceRequest, draftReply,
+                AiSelections.forConversation(c, conversationId), null);
+    }
+
+    public static String enqueue(Context c, String conversationId, String prompt, String screenText, Bitmap screenshot,
+                                 boolean voiceRequest, boolean draftReply, Listener listener) {
+        return enqueue(c, conversationId, prompt, screenText, screenshot, voiceRequest, draftReply,
+                AiSelections.forConversation(c, conversationId), listener);
+    }
+
+    public static String enqueue(Context c, String conversationId, String prompt, String screenText, Bitmap screenshot,
+                                 boolean voiceRequest, boolean draftReply, AiSelection selection, Listener listener) {
+        return enqueue(c, conversationId, prompt, screenText, screenshot, voiceRequest, draftReply,
+                selection, false, listener);
+    }
+
+    public static String enqueue(Context c, String conversationId, String prompt, String screenText, Bitmap screenshot,
+                                 boolean voiceRequest, boolean draftReply, AiSelection selection,
+                                 boolean explicitAttachment, Listener listener) {
+        return enqueue(c, conversationId, prompt, screenText,
+                screenshot == null ? java.util.Collections.emptyList()
+                        : java.util.Collections.singletonList(screenshot),
+                voiceRequest, draftReply, selection, explicitAttachment, listener);
+    }
+
+    /**
+     * Queues a turn carrying any number of images, in the order the user attached them.
+     *
+     * <p>The list handed in here is already a snapshot: the composer's live collection is copied
+     * at Send, so removing a thumbnail afterwards cannot change a request that is already on its
+     * way, and the conversation's own record of the turn cannot be edited from the composer either.
+     */
+    public static String enqueue(Context c, String conversationId, String prompt, String screenText,
+                                 List<Bitmap> images, boolean voiceRequest, boolean draftReply,
+                                 AiSelection selection, boolean explicitAttachment, Listener listener) {
+        ConversationStore.Conversation conversation = ConversationStore.load(c, conversationId);
+        List<AssistantClient.History> history = conversation == null
+                ? java.util.Collections.emptyList() : conversation.messages;
+        Bitmap first = images == null || images.isEmpty() ? null : images.get(0);
+        String trustedTaskContext = ReplyDraftContext.observeAndGet(
+                c, conversationId, prompt, screenText, first, history);
+        return enqueueFrozen(c, conversationId, prompt, screenText, images, voiceRequest,
+                draftReply, selection, explicitAttachment, trustedTaskContext, "", history, listener);
+    }
+
+    /**
+     * Queues a retry of the answer at {@code answerAt} that becomes a new answer variant
+     * (0.8.3.0-beta.3+) rather than replacing it.
+     *
+     * <p>The conversation is not changed here. The request is built from the conversation as it
+     * stood before that answer, and only a finished answer is written, beside the one it was
+     * asked about; a failed retry leaves the existing answer exactly where it was.
+     */
+    public static String enqueueAnswerVariant(Context c, String conversationId, int answerAt,
+                                              String prompt, String screenText, List<Bitmap> images,
+                                              AiSelection selection, boolean explicitAttachment,
+                                              Listener listener) {
+        ConversationStore.Conversation conversation = ConversationStore.load(c, conversationId);
+        List<AssistantClient.History> history = conversation == null
+                ? java.util.Collections.emptyList()
+                : conversation.messages.subList(0, Math.max(0, Math.min(answerAt, conversation.messages.size())));
+        Bitmap first = images == null || images.isEmpty() ? null : images.get(0);
+        String trustedTaskContext = ReplyDraftContext.observeAndGet(
+                c, conversationId, prompt, screenText, first, history);
+        String target = PendingRequestStore.variantTarget(answerAt,
+                ConversationBranches.parentKey(history, history.size()));
+        return enqueueFrozen(c, conversationId, prompt, screenText, images, false, false,
+                selection, explicitAttachment, trustedTaskContext, target, history, listener);
+    }
+
+    private static String enqueueFrozen(Context c, String conversationId, String prompt, String screenText,
+                                        List<Bitmap> images, boolean voiceRequest, boolean draftReply,
+                                        AiSelection selection, boolean explicitAttachment,
+                                        String trustedTaskContext, String variantTarget,
+                                        List<AssistantClient.History> history, Listener listener) {
+        // Auto is resolved here, once, before anything is queued: the request is frozen with the
+        // exact provider, model and strength Auto chose, and nothing later re-routes it. An
+        // explicit selection never reaches the router at all.
+        AiSelection exact = AiSelections.resolve(selection);
+        SmartRouter.Route route = null;
+        if (exact.isAuto()) {
+            route = routeAuto(c, conversationId, history, prompt, screenText, images,
+                    explicitAttachment);
+            exact = route.ok() ? route.selection : AiSelection.AUTO;
+        }
+        List<String> pendingScreens = AttachmentStore.savePendingScreens(c, images);
+        PendingRequestStore.Item item = PendingRequestStore.create(c, conversationId, prompt, screenText,
+                pendingScreens, voiceRequest, draftReply, exact, explicitAttachment,
+                trustedTaskContext, variantTarget, route);
+        if (listener != null) addListener(item.id, listener);
+        Data input = new Data.Builder().putString(OrbitRequestWorker.KEY_REQUEST_ID, item.id).build();
+        // An offline-capable provider (Orbit Local) must not wait for connectivity: its whole
+        // point is answering with none. Cloud providers keep the connectivity constraint so a
+        // request survives a dead network instead of failing instantly.
+        boolean offlineOk = MemoryCommandRouter.canHandle(prompt)
+                || KitchenMathRouter.canHandle(prompt)
+                // An Auto request with no permitted model reports that at once, network or not.
+                || (route != null && !route.ok())
+                || AiProviders.forSelection(c, exact).capabilities().offline;
+        Constraints constraints = new Constraints.Builder()
+                .setRequiredNetworkType(offlineOk ? NetworkType.NOT_REQUIRED : NetworkType.CONNECTED)
+                .build();
+        OneTimeWorkRequest work = new OneTimeWorkRequest.Builder(OrbitRequestWorker.class)
+                .setConstraints(constraints)
+                .setInputData(input)
+                .addTag("orbit-ai")
+                .addTag("orbit-conversation-" + conversationId)
+                .build();
+        // KEEP, not REPLACE: the unique name is derived from a request id that was just created,
+        // so nothing can already be enqueued under it. Should anything ever collide, keeping the
+        // existing work is the answer that cannot produce a second run of the same turn.
+        WorkManager.getInstance(c.getApplicationContext()).enqueueUniqueWork(
+                uniqueWorkName(item.id), ExistingWorkPolicy.KEEP, work);
+        RequestTrace.lifecycle(item.id, "queued");
+        return item.id;
+    }
+
+    /**
+     * Asks {@link SmartRouter} for one request's exact selection. Reads only what is on the phone:
+     * the history the request will be built from, its attachments, and the chat's kept context.
+     * Never throws; a failure becomes a route the worker reports as an error.
+     */
+    static SmartRouter.Route routeAuto(Context c, String conversationId,
+                                       List<AssistantClient.History> history, String prompt,
+                                       String screenText, List<Bitmap> images,
+                                       boolean explicitAttachment) {
+        try {
+            List<AssistantClient.History> turns = history == null
+                    ? java.util.Collections.emptyList() : history;
+            KeptContext.Prepared kept = OrbitRequestWorker.keptFor(
+                    ConversationStore.load(c, conversationId), turns);
+            SmartRouter.Request request = SmartRouter.describe(c, turns, prompt, screenText,
+                    images, explicitAttachment, kept);
+            return SmartRouter.route(c, request);
+        } catch (RuntimeException e) {
+            return SmartRouter.Route.failed("Auto could not choose a model for this request."
+                    + SmartRouter.HINT);
+        }
+    }
+
+    public static String retry(Context c, String failedRequestId, Listener listener) {
+        PendingRequestStore.Item failed = PendingRequestStore.load(c, failedRequestId);
+        if (failed == null) return "";
+        List<Bitmap> images = AttachmentStore.loadAll(failed.screenshotPaths);
+        PendingRequestStore.markSuperseded(c, failedRequestId);
+        // Retry is a new attempt the user asked for: an Auto request asks Auto again, under the
+        // permissions as they are now, and an explicit one goes to exactly the same model.
+        ConversationStore.Conversation conversation = ConversationStore.load(c, failed.conversationId);
+        List<AssistantClient.History> history = conversation == null
+                ? java.util.Collections.emptyList() : conversation.messages;
+        if (failed.isAnswerVariant()) {
+            history = history.subList(0, Math.max(0, Math.min(failed.variantAt(), history.size())));
+        }
+        String next = enqueueFrozen(c, failed.conversationId, failed.prompt, failed.screenText, images,
+                failed.voiceRequest, failed.draftReply, failed.requestedSelection(),
+                failed.explicitAttachment, failed.trustedTaskContext, failed.variantTarget,
+                history, listener);
+        AttachmentStore.deleteAll(failed.screenshotPaths);
+        return next;
+    }
+
+    /**
+     * The one authoritative way to stop an Orbit request. Both surfaces call this; neither owns any
+     * cancellation logic of its own.
+     *
+     * <p>Everything that makes the stop real happens while the request's completion lock is held,
+     * so a worker that is midway through finishing either committed its answer before this ran or
+     * finds the request cancelled and abandons it. There is no window in between.
+     *
+     * @return true if this call is what stopped the request. False means there was nothing to stop:
+     *         no such request, or it had already finished, failed, or been stopped.
+     */
+    public static boolean cancel(Context c, String requestId) {
+        if (c == null || requestId == null || requestId.isEmpty()) return false;
+        PendingRequestStore.Item item = PendingRequestStore.load(c, requestId);
+        if (item == null) return false;
+
+        String partial;
+        synchronized (completionLock(requestId)) {
+            PendingRequestStore.Item current = PendingRequestStore.load(c, requestId);
+            // committed as well as terminal: an answer that has been claimed is already being
+            // written, so there is nothing left for a Stop to prevent.
+            if (current == null || current.committed
+                    || PendingRequestStore.isTerminal(current.status)) return false;
+            // Refuse deltas and completions from this point on, before anything else can observe
+            // a half-cancelled request.
+            CANCELLED.add(requestId);
+            // A stopped request must not leave a stale status behind, and nothing may resurrect
+            // one afterwards: dispatchThinking refuses a cancelled id from this instant.
+            PROGRESS.remove(requestId);
+            PendingRequestStore.markCancelled(c, requestId);
+            partial = takePartial(requestId);
+            if (current.isAnswerVariant()) {
+                // A stopped retry keeps whatever it had written as one more version of the answer,
+                // marked as stopped, and keeps the answer it was asked beside. A retry stopped
+                // before any text arrived changes nothing at all: the existing answer stays.
+                if (!partial.isEmpty()) {
+                    ConversationStore.commitAnswerVariant(c, current.conversationId,
+                            current.variantAt(), current.variantParent(),
+                            new AssistantClient.History("assistant", partial)
+                                    .withReplyProvenance(requestId, java.util.Collections.emptyList())
+                                    .withStoppedRequestId(requestId));
+                }
+            } else {
+                // The manager is the single owner of partial persistence: whatever had streamed is
+                // written here exactly once, so reopening the conversation shows it and no other
+                // path can append it a second time.
+                if (!partial.isEmpty()) {
+                    ConversationStore.appendMessage(c, current.conversationId,
+                            new AssistantClient.History("assistant", partial));
+                }
+                // Anchor the stopped mark to this turn, after the partial answer has been written so
+                // it lands on the end of the turn rather than in the middle of it. This is the only
+                // place a stop is recorded against the conversation, so both surfaces read one fact
+                // and neither can invent its own. It is representation only: cancellation is
+                // already complete above, and nothing below this line may depend on the write
+                // succeeding.
+                ConversationStore.markTurnStopped(c, current.conversationId, requestId);
+            }
+            cancelWork(c, requestId);
+        }
+        AttachmentStore.deleteAll(item.screenshotPaths);
+        dispatchCancelled(requestId, partial);
+        return true;
+    }
+
+    /**
+     * Stops every request still running for one conversation. Convenience over {@link #cancel};
+     * the decision and the persistence still happen there.
+     *
+     * @return true if at least one request was stopped.
+     */
+    public static boolean cancelActiveForConversation(Context c, String conversationId) {
+        if (c == null || conversationId == null) return false;
+        boolean cancelled = false;
+        for (PendingRequestStore.Item item : PendingRequestStore.activeForConversation(c, conversationId)) {
+            if (cancel(c, item.id)) cancelled = true;
+        }
+        return cancelled;
+    }
+
+    private static void cancelWork(Context c, String requestId) {
+        String name = uniqueWorkName(requestId);
+        WorkCanceller canceller = workCanceller;
+        if (canceller != null) { canceller.cancelUniqueWork(name); return; }
+        try {
+            WorkManager.getInstance(c.getApplicationContext()).cancelUniqueWork(name);
+        } catch (Throwable ignored) {}
+    }
+
+    static void setWorkCanceller(WorkCanceller canceller) { workCanceller = canceller; }
+
+    private static String takePartial(String requestId) {
+        String partial = PARTIALS.remove(requestId);
+        return partial == null ? "" : partial.trim();
+    }
+
+    /** Test seam: clears the in-process cancellation and streaming records between cases. */
+    static void resetForTest() {
+        LISTENERS.clear();
+        PARTIALS.clear();
+        PROGRESS.clear();
+        CANCELLED.clear();
+        COMPLETION_LOCKS.clear();
+        RUNNING_ATTEMPTS.clear();
+        workCanceller = null;
+    }
+
+    public static boolean hasListeners(String requestId) {
+        CopyOnWriteArrayList<Listener> list = LISTENERS.get(requestId);
+        return list != null && !list.isEmpty();
+    }
+
+    /**
+     * Attaches a surface to an existing request.
+     *
+     * <p>A recreated Activity or a reopened overlay attaches here rather than starting anything.
+     * Listening is purely observational: it cannot enqueue work and it cannot persist an answer,
+     * so any number of surfaces may watch one request and the request still produces exactly one
+     * completion.
+     */
+    public static void addListener(String requestId, Listener listener) {
+        if (requestId == null || listener == null) return;
+        // A stopped request has nothing left to report, so nothing new attaches to it.
+        if (isCancelled(requestId)) return;
+        LISTENERS.computeIfAbsent(requestId, k -> new CopyOnWriteArrayList<>()).addIfAbsent(listener);
+        RequestTrace.listener(requestId, true);
+    }
+
+    public static void removeListener(String requestId, Listener listener) {
+        if (requestId == null || listener == null) return;
+        CopyOnWriteArrayList<Listener> list = LISTENERS.get(requestId);
+        if (list == null) return;
+        list.remove(listener);
+        if (list.isEmpty()) LISTENERS.remove(requestId);
+        RequestTrace.listener(requestId, false);
+    }
+
+    static void dispatchStarted(String id) {
+        if (isCancelled(id)) return;
+        for (Listener l : listeners(id)) try { l.onStarted(id); } catch (Exception ignored) {}
+    }
+    static void dispatchDelta(String id, String delta) {
+        if (isCancelled(id)) return;
+        // Deltas are cumulative, so the newest one replaces the last as the whole partial answer.
+        if (delta != null && !delta.isEmpty()) PARTIALS.put(id, delta);
+        for (Listener l : listeners(id)) try { l.onDelta(id, delta); } catch (Exception ignored) {}
+    }
+    /**
+     * Offers one status update to whoever is watching this request.
+     *
+     * <p>Refused for a stopped request, exactly as a delta is, so a Stop silences the status line
+     * as immediately as it silences the answer. Nothing here touches the completion gate, the
+     * pending store, the conversation, or WorkManager; the only effects are the snapshot below and
+     * the listener calls.
+     */
+    static void dispatchThinking(String id, ThinkingUpdate update) {
+        if (update == null || isCancelled(id)) return;
+        if (id != null) PROGRESS.put(id, update);
+        for (Listener l : listeners(id)) try { l.onThinking(id, update); } catch (Exception ignored) {}
+    }
+
+    /**
+     * The last status this request produced, or null when it has produced none or has finished.
+     *
+     * <p>Exists for the handoff between the overlay and full chat inside one process: opening the
+     * other surface on a running request should not blank a status line that is still true.
+     */
+    public static ThinkingUpdate latestThinking(String requestId) {
+        if (requestId == null || isCancelled(requestId)) return null;
+        return PROGRESS.get(requestId);
+    }
+
+    static void dispatchSuccess(String id, AssistantReply reply) {
+        if (isCancelled(id)) { forget(id); return; }
+        for (Listener l : listeners(id)) try { l.onSuccess(id, reply); } catch (Exception ignored) {}
+        forget(id);
+    }
+    static void dispatchError(String id, String error) {
+        if (isCancelled(id)) { forget(id); return; }
+        for (Listener l : listeners(id)) try { l.onError(id, error); } catch (Exception ignored) {}
+        forget(id);
+    }
+    static void dispatchCancelled(String id, String partialText) {
+        String partial = partialText == null ? "" : partialText;
+        for (Listener l : listeners(id)) try { l.onCancelled(id, partial); } catch (Exception ignored) {}
+        forget(id);
+    }
+    private static void forget(String id) {
+        LISTENERS.remove(id);
+        PARTIALS.remove(id);
+        // A terminal request has no status left to report, and every path out of a request
+        // passes through here or through cancel, so this is where a status line stops existing.
+        PROGRESS.remove(id);
+        COMPLETION_LOCKS.remove(id);
+    }
+    private static List<Listener> listeners(String id) {
+        CopyOnWriteArrayList<Listener> list = LISTENERS.get(id);
+        return list == null ? java.util.Collections.emptyList() : list;
+    }
+}

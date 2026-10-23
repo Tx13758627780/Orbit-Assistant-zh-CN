@@ -1,0 +1,184 @@
+package com.orbit.assistant;
+
+import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertTrue;
+
+import org.junit.Test;
+
+/**
+ * How Orbit reads and writes its own version strings.
+ *
+ * <p>The rejection cases carry the weight here. Orbit publishes Beta builds from the same
+ * repository, package, and signing certificate as Stable ones, so "is this a legitimate Orbit
+ * Beta version" is a question with a security flavour: a tag such as {@code v0.7.7.5-test} or
+ * {@code v0.7.7.5-beta.0} is not an Orbit release, and must never be parsed into one.
+ */
+public final class OrbitVersionTest {
+
+    // ---- what counts as a version ---------------------------------------------------------------
+
+    @Test public void stableVersionsAreRecognised() {
+        assertTrue(OrbitVersion.isStable("0.7.7.5"));
+        assertTrue(OrbitVersion.isStable("1.0.0.0"));
+        assertTrue(OrbitVersion.isStable("0.8.0"));
+        assertFalse(OrbitVersion.isBeta("0.7.7.5"));
+    }
+
+    @Test public void betaVersionsAreRecognised() {
+        assertTrue(OrbitVersion.isBeta("0.7.7.5-beta.1"));
+        assertTrue(OrbitVersion.isBeta("0.7.7.5-beta.2"));
+        assertTrue(OrbitVersion.isBeta("0.8.0.0-beta.14"));
+        assertFalse(OrbitVersion.isStable("0.7.7.5-beta.1"));
+    }
+
+    /** A malformed suffix is not a Beta. It is not a version at all. */
+    @Test public void malformedSuffixesAreNotBetas() {
+        for (String bad : new String[]{
+                "0.7.7.5-beta", "0.7.7.5-beta.0", "0.7.7.5-beta.zero", "0.7.7.5-beta.01",
+                "0.7.7.5-test", "0.7.7.5-rc.1", "0.7.7.5-BETA.1", "0.7.7.5beta1",
+                "0.7.7.5-beta.1.2", "beta.1", "", "0", "not-a-version"}) {
+            assertFalse(bad + " must not read as a Beta", OrbitVersion.isBeta(bad));
+            assertFalse(bad + " must not read as a valid Orbit version", OrbitVersion.isValid(bad));
+        }
+        assertFalse(OrbitVersion.isValid(null));
+    }
+
+    @Test public void baseVersionStripsTheBetaSuffix() {
+        assertEquals("0.7.7.5", OrbitVersion.baseVersion("0.7.7.5-beta.3"));
+        assertEquals("0.7.7.5", OrbitVersion.baseVersion("0.7.7.5"));
+        assertEquals("", OrbitVersion.baseVersion("0.7.7.5-beta.0"));
+        assertEquals("", OrbitVersion.baseVersion(null));
+    }
+
+    @Test public void theBetaCounterIsRead() {
+        assertEquals(1, OrbitVersion.betaNumber("0.7.7.5-beta.1"));
+        assertEquals(12, OrbitVersion.betaNumber("0.7.7.5-beta.12"));
+        assertEquals(0, OrbitVersion.betaNumber("0.7.7.5"));
+        assertEquals(0, OrbitVersion.betaNumber("0.7.7.5-beta.0"));
+    }
+
+    // ---- how a build is written for a person ------------------------------------------------------
+
+    @Test public void buildsAreDisplayedTheWayPeopleReadThem() {
+        assertEquals("0.7.7.5", OrbitVersion.displayName("0.7.7.5"));
+        assertEquals("0.7.7.5 Beta 1", OrbitVersion.displayName("0.7.7.5-beta.1"));
+        assertEquals("0.7.7.5 Beta 12", OrbitVersion.displayName("0.7.7.5-beta.12"));
+        assertEquals("0.8.0.0 Beta 14", OrbitVersion.displayName("0.8.0.0-beta.14"));
+    }
+
+    /** An unrecognised string is shown as it is, never dressed up as a legitimate Beta. */
+    @Test public void unrecognisedStringsAreNotPresentedAsBetas() {
+        assertEquals("0.7.7.5-beta.0", OrbitVersion.displayName("0.7.7.5-beta.0"));
+        assertEquals("0.7.7.5-test", OrbitVersion.displayName("0.7.7.5-test"));
+    }
+
+    @Test public void releaseTitlesMatchTheWorkflow() {
+        assertEquals("Orbit Assistant v0.7.7.4", OrbitVersion.releaseTitle("0.7.7.4"));
+        assertEquals("Orbit Assistant v0.7.7.5 Beta 1", OrbitVersion.releaseTitle("0.7.7.5-beta.1"));
+    }
+
+    // ---- tags -------------------------------------------------------------------------------------
+
+    @Test public void tagsFollowTheVersionRules() {
+        assertTrue(OrbitVersion.isStableTag("v0.7.7.5"));
+        assertTrue(OrbitVersion.isBetaTag("v0.7.7.5-beta.1"));
+        assertTrue(OrbitVersion.isValidTag("v0.8.0.0-beta.14"));
+
+        assertFalse(OrbitVersion.isValidTag("0.7.7.5"));
+        assertFalse(OrbitVersion.isValidTag("v0.7.7.5-beta"));
+        assertFalse(OrbitVersion.isValidTag("v0.7.7.5-beta.0"));
+        assertFalse(OrbitVersion.isValidTag("v0.7.7.5-beta.zero"));
+        assertFalse(OrbitVersion.isValidTag("v0.7.7.5-test"));
+        assertFalse(OrbitVersion.isValidTag("beta-v0.7.7.5"));
+        assertFalse(OrbitVersion.isValidTag(null));
+
+        assertFalse("a beta tag is not a stable tag", OrbitVersion.isStableTag("v0.7.7.5-beta.1"));
+        assertFalse("a stable tag is not a beta tag", OrbitVersion.isBetaTag("v0.7.7.5"));
+    }
+
+    @Test public void tagsAndVersionsRoundTrip() {
+        assertEquals("0.7.7.5", OrbitVersion.versionFromTag("v0.7.7.5"));
+        assertEquals("0.7.7.5-beta.2", OrbitVersion.versionFromTag("v0.7.7.5-beta.2"));
+        assertEquals("", OrbitVersion.versionFromTag("v0.7.7.5-beta.0"));
+        assertEquals("v0.7.7.5-beta.2", OrbitVersion.tagFor("0.7.7.5-beta.2"));
+        assertEquals("v0.7.7.4", OrbitVersion.tagFor("0.7.7.4"));
+    }
+
+    // ---- ordering ---------------------------------------------------------------------------------
+
+    @Test public void newerBaseVersionsRankHigher() {
+        assertTrue(OrbitVersion.compareVersions("0.7.7.6", "0.7.7.5") > 0);
+        assertTrue(OrbitVersion.compareVersions("0.7.7.5", "0.7.7.6") < 0);
+        assertEquals(0, OrbitVersion.compareVersions("0.7.7.5", "0.7.7.5"));
+        assertTrue(OrbitVersion.compareVersions("0.7.7.10", "0.7.7.9") > 0);
+    }
+
+    /** A Beta is a step towards its Stable release, so the finished release outranks it. */
+    @Test public void aStableReleaseOutranksItsOwnBetas() {
+        assertTrue(OrbitVersion.compareVersions("0.7.7.5", "0.7.7.5-beta.3") > 0);
+        assertTrue(OrbitVersion.compareVersions("0.7.7.5-beta.3", "0.7.7.5") < 0);
+        assertTrue(OrbitVersion.compareVersions("0.7.7.5-beta.2", "0.7.7.5-beta.1") > 0);
+        assertTrue("a later cycle's Beta still outranks an earlier finished release",
+                OrbitVersion.compareVersions("0.7.7.6-beta.1", "0.7.7.5") > 0);
+    }
+
+    @Test public void unrecognisedVersionsSortBelowEverything() {
+        assertTrue(OrbitVersion.compareVersions("0.0.0.1", "nonsense") > 0);
+        assertTrue(OrbitVersion.compareVersions("nonsense", "0.0.0.1") < 0);
+        assertEquals(0, OrbitVersion.compareVersions("nonsense", "also-nonsense"));
+    }
+
+    // ---- this installation ------------------------------------------------------------------------
+
+    /**
+     * Whatever Orbit ships as, its own version must parse. A build whose versionName Orbit cannot
+     * read would break update comparisons and the release workflow's tag check together, so this
+     * fails at build time rather than on a phone.
+     */
+    @Test public void thisBuildHasAVersionOrbitUnderstands() {
+        assertTrue("BuildConfig version must be a valid Orbit version",
+                OrbitVersion.isValid(BuildConfig.VERSION_NAME));
+        assertEquals(OrbitVersion.displayName(BuildConfig.VERSION_NAME),
+                OrbitVersion.installedDisplayName());
+        assertEquals(OrbitVersion.isBeta(BuildConfig.VERSION_NAME), OrbitVersion.installedIsBeta());
+        assertTrue("its tag must be one the release workflow accepts",
+                OrbitVersion.isValidTag(OrbitVersion.tagFor(BuildConfig.VERSION_NAME)));
+    }
+
+    /**
+     * 0.8.4.1 is the fix release after 0.8.4.0 Stable (ChatGPT session recovery and Times New
+     * Roman on One UI 9), promoted unchanged from the device-tested Beta 1. It must carry Stable
+     * metadata, never be published as a prerelease, and outrank both the Stable and the Beta it
+     * follows.
+     */
+    @Test public void thisBuildIsTheFixStableAfterOverlayStyles() {
+        String version = BuildConfig.VERSION_NAME;
+        assertFalse(OrbitVersion.installedIsBeta());
+        assertTrue(OrbitVersion.isStable(version));
+        assertFalse(OrbitVersion.isBeta(version));
+        assertEquals("0.8.4.1", version);
+        assertEquals("0.8.4.1", OrbitVersion.baseVersion(version));
+        assertEquals("a Stable release has no beta counter", 0, OrbitVersion.betaNumber(version));
+
+        assertEquals("Orbit Assistant v0.8.4.1", OrbitVersion.releaseTitle(version));
+        assertEquals("v0.8.4.1", OrbitVersion.tagFor(version));
+        assertTrue("the release workflow must publish it as a normal release",
+                OrbitVersion.isStableTag(OrbitVersion.tagFor(version)));
+        assertFalse(OrbitVersion.isBetaTag(OrbitVersion.tagFor(version)));
+
+        assertTrue("it must outrank the previous Stable release",
+                OrbitVersion.compareVersions(version, "0.8.4.0") > 0);
+        assertTrue("and the tested Beta it was promoted from",
+                OrbitVersion.compareVersions(version, "0.8.4.1-beta.1") > 0);
+        assertFalse("a Stable release build never offers the Pro Preview override",
+                OrbitProEntitlement.previewAvailable(false, version));
+    }
+
+    /** Stable must supersede Beta 1, published as versionCode 817. */
+    @Test public void thisBuildOutranksThePublishedReleaseItFollows() {
+        assertEquals("the next synchronized version code", 819, BuildConfig.VERSION_CODE);
+        assertTrue(OrbitVersion.compareVersions(BuildConfig.VERSION_NAME, "0.8.4.1-beta.1") > 0);
+        assertTrue(OrbitVersion.compareVersions(BuildConfig.VERSION_NAME, "0.8.4.0") > 0);
+    }
+}

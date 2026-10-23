@@ -1,0 +1,729 @@
+package com.orbit.assistant;
+
+import android.content.Context;
+import android.content.SharedPreferences;
+
+import org.json.JSONObject;
+
+import java.util.Arrays;
+import java.util.HashSet;
+import java.util.Locale;
+import java.util.Set;
+
+public final class Prefs {
+    private static final String FILE = "orbit_prefs";
+    // Retired with intelligence modes in 0.8.3.0. Read once by AiSelections.ensureMigrated and
+    // otherwise left untouched, so a downgrade still finds what it wrote.
+    public static final String MODEL = "model";
+    public static final String REASONING = "reasoning";
+    public static final String INTELLIGENCE_MODE = "intelligence_mode";
+    /** Default model for new chats and the assistant (0.8.3.0+). Provider lives in PROVIDER. */
+    public static final String AI_DEFAULT_MODEL = "ai_default_model";
+    /** Default reasoning strength id for new chats; empty for a model with no strength. */
+    public static final String AI_DEFAULT_STRENGTH = "ai_default_strength";
+    /** JSON array of provider/model keys the user starred in Model Library. */
+    public static final String AI_MODEL_FAVORITES = "ai_model_favorites";
+    /** JSON array of recent user-chosen conversational selections, newest first. */
+    public static final String AI_MODEL_RECENTS = "ai_model_recents";
+    /** JSON object of the last explicitly chosen model per provider. */
+    public static final String AI_PROVIDER_DEFAULTS = "ai_provider_defaults";
+    /**
+     * True when new chats start on Auto (0.8.3.0-beta.5+). The explicit default above is kept
+     * either way: it is what planning and other non-chat work use, and what a chat leaving Auto
+     * falls back to. False unless the user chooses Auto as the default.
+     */
+    public static final String AI_DEFAULT_AUTO = "ai_default_auto";
+    /** Whether Auto may route to a provider (0.8.3.0-beta.5+). See {@link AutoPermissions}. */
+    public static final String AUTO_USE_CHATGPT = "auto_use_chatgpt";
+    public static final String AUTO_USE_LOCAL = "auto_use_local";
+    /** Separately billed: off until the user turns them on, and never restored from a backup. */
+    public static final String AUTO_USE_ANTHROPIC = "auto_use_anthropic";
+    public static final String AUTO_USE_XAI = "auto_use_xai";
+    /** OpenRouter spends OpenRouter credits: off until switched on, never restored (0.8.3.0-beta.6+). */
+    public static final String AUTO_USE_OPENROUTER = "auto_use_openrouter";
+    /** Set once the one-sheet Auto introduction has been shown. */
+    public static final String AUTO_INTRO_SEEN = "auto_intro_seen";
+    public static final String PROVIDER = "provider";
+    public static final String BACKEND_URL = "backend_url";
+    public static final String BACKEND_TOKEN = "backend_token";
+    public static final String SCREEN_CONTEXT = "screen_context";
+    public static final String SCREENSHOT = "screenshot";
+    public static final String CONTEXT_CHIPS = "context_chips";
+    public static final String ATTACH_SCREEN_BY_DEFAULT = "attach_screen_by_default";
+    public static final String SPEAK = "speak";
+    public static final String HAPTICS = "haptics";
+    public static final String AUTO_LISTEN = "auto_listen";
+    /**
+     * Starts the first voice turn automatically when the assistant overlay opens. Deliberately
+     * separate from {@link #AUTO_LISTEN}, which continues to own hands-free follow-up turns
+     * after Orbit finishes speaking. The two stages are controlled independently.
+     */
+    public static final String AUTO_LISTEN_ON_OPEN = "auto_listen_on_open";
+    /**
+     * Subordinate to {@link #AUTO_LISTEN}: when the master is on, reopen the microphone only for a
+     * reply that is actually waiting for an answer. Turning this off restores the older behaviour
+     * where every eligible spoken reply opened the microphone. It has no effect while
+     * {@link #AUTO_LISTEN} is off, and its stored value is kept either way.
+     */
+    public static final String SMART_FOLLOW_UPS = "smart_follow_ups";
+    public static final String VOICE_PAUSE_FRIENDLY = "voice_pause_friendly";
+    public static final String ACCENT = "accent";
+    public static final String NEW_CHAT_ON_OPEN = "new_chat_on_open";
+    public static final String HISTORY_ENABLED = "history_enabled";
+    public static final String SAVE_SCREEN_THUMBNAILS = "save_screen_thumbnails";
+    public static final String KEYBOARD_AWARE_ASSISTANT = "keyboard_aware_assistant";
+    /**
+     * Turns the composer's Send control into Stop while Orbit is generating a reply, on both
+     * surfaces. Off leaves the composer exactly as it was before this option existed.
+     */
+    public static final String SHOW_STOP_BUTTON = "show_stop_button";
+    public static final String THINKING_UPDATES = "thinking_updates";
+    public static final String RICH_ANSWERS = "rich_answers";
+    public static final String USER_BUBBLE_COLOR = "user_bubble_color";
+    public static final String ASSISTANT_BUBBLE_COLOR = "assistant_bubble_color";
+    public static final String CHAT_TEXT_SIZE = "chat_text_size";
+    public static final String GALLERY_APP_PACKAGE = "gallery_app_package";
+    public static final String LELO_MODE = "lelo_mode";
+    public static final String BACKGROUND_NOTIFICATIONS = "background_notifications";
+    public static final String WEATHER_LOCATION = "weather_location";
+    public static final String WEATHER_USE_DEVICE_LOCATION = "weather_use_device_location";
+    public static final String WEATHER_UNITS = "weather_units";
+    public static final String MEMORY_ENABLED = "memory_enabled";
+    public static final String MEMORY_USAGE_INDICATOR = "memory_usage_indicator";
+    public static final String MEMORY_SUGGESTIONS = "memory_suggestions";
+    public static final String NOTIFICATION_AI_ENABLED = "notification_ai_enabled";
+    public static final String NOTIFICATION_RETENTION_DAYS = "notification_retention_days";
+    public static final String AMOLED_MODE = "amoled_mode";
+    public static final String APP_FONT = "app_font";
+    /**
+     * Theme Studio's two additional appearance tokens, and the identity of the theme they belong
+     * to. The other four — accent, AMOLED, and the two bubble colours — are the keys above, which
+     * is deliberate: a theme is the appearance preferences Orbit already had, named as one thing,
+     * not a parallel copy of them that could drift. See {@link OrbitThemeStore}.
+     */
+    public static final String THEME_SURFACE = "theme_surface";
+    public static final String THEME_BACKGROUND = "theme_background";
+    public static final String THEME_ID = "theme_id";
+    public static final String THEME_NAME = "theme_name";
+    public static final String THEME_SCHEMA = "theme_schema";
+
+    /**
+     * The active theme's Orbit Pro styling.
+     *
+     * <p>Beside the other theme keys rather than in a store of their own, for the reason the whole
+     * of {@link OrbitThemeStore} is built on: the active theme is not stored anywhere new, it is
+     * the live preference values, and a premium field kept somewhere else would be a second source
+     * of truth for one appearance. They are written whether or not the device has Pro and read the
+     * same way; {@code OrbitProStyle.resolve} is what decides whether they are drawn.
+     */
+    public static final String THEME_PRO_BUBBLE_RADIUS = "theme_pro_bubble_radius";
+    public static final String THEME_PRO_BUBBLE_OUTLINE = "theme_pro_bubble_outline";
+    public static final String THEME_PRO_GLASS_OPACITY = "theme_pro_glass_opacity";
+    public static final String THEME_PRO_GLASS_TINT = "theme_pro_glass_tint";
+    public static final String THEME_PRO_GLASS_EDGE = "theme_pro_glass_edge";
+    /**
+     * The active theme's advanced background, added in v0.8.0.0-beta.4.
+     *
+     * <p>Every one of these defaults to the value that reproduces the previous release, so an install
+     * that has never had these keys reads back as a page with no effect on it - which is what it was.
+     * The effect colour is a token in Orbit's existing colour vocabulary rather than a packed integer,
+     * so it survives an accent change the way every other theme colour does.
+     */
+    public static final String THEME_PRO_BACKGROUND_MODE = "theme_pro_background_mode";
+    public static final String THEME_PRO_BACKGROUND_EFFECT_COLOR = "theme_pro_background_effect_color";
+    public static final String THEME_PRO_GRADIENT_DIRECTION = "theme_pro_gradient_direction";
+    public static final String THEME_PRO_GLOW_STRENGTH = "theme_pro_glow_strength";
+    public static final String THEME_PRO_GLOW_SIZE = "theme_pro_glow_size";
+    public static final String THEME_PRO_GLOW_POSITION = "theme_pro_glow_position";
+    /** How far a linear background travels towards its effect colour. Added in v0.8.0.0-beta.5. */
+    public static final String THEME_PRO_GRADIENT_STRENGTH = "theme_pro_gradient_strength";
+    /**
+     * The active theme's floating-surface material, added in v0.8.0.0-beta.5.
+     *
+     * <p>A free appearance value, so it sits with the other free theme keys rather than among the
+     * {@code THEME_PRO_*} ones. Absent on every install before this release, and
+     * {@link OrbitThemeStore#activeMaterial} decides what that absence means.
+     */
+    public static final String THEME_MATERIAL = "theme_material";
+    /** The id an appearance that matches no shipped preset is recorded under. */
+    public static final String THEME_ID_CUSTOM = "custom";
+    public static final String QUICK_SETTINGS_ROUTINE_ID = "quick_settings_routine_id";
+    public static final String UPDATE_NOTIFICATIONS = "update_notifications";
+    /**
+     * Which Orbit releases this device is willing to be offered.
+     *
+     * <p>Deliberately absent from every Backup & Restore key set below. Beta enrolment is a
+     * standing acceptance of less-tested software, so it belongs to the device the user opted in
+     * on — restoring a backup onto a new phone must never quietly make it a Beta tester.
+     */
+    public static final String UPDATE_CHANNEL = "update_channel";
+    public static final String CHANNEL_STABLE = "stable";
+    public static final String CHANNEL_BETA = "beta";
+    /**
+     * The developer Orbit Pro override, for building and testing premium features before there is
+     * any way to buy one. Exactly two values: {@link #PRO_PREVIEW_FREE} and {@link #PRO_PREVIEW_PRO}.
+     *
+     * <p>Only ever read on a build eligible for it, which {@link OrbitProEntitlement} decides and
+     * nothing else does. A Stable build ignores whatever is stored here, so a tester who installs
+     * Stable over a Beta does not carry Pro across, and their choice is still waiting for them in
+     * the next Beta.
+     *
+     * <p>Deliberately absent from every Backup &amp; Restore key set below, alongside the update
+     * channel. It is a testing override belonging to this build on this device, and restoring a
+     * backup onto another phone must never hand somebody a Pro state they did not choose.
+     */
+    public static final String PRO_PREVIEW = "pro_preview";
+    public static final String PRO_PREVIEW_FREE = "free";
+    public static final String PRO_PREVIEW_PRO = "pro";
+    public static final String PAGE_TRANSITION = "page_transition";
+    /** Side-button overlay look; see {@link OverlayStyle}. Modern for anyone who never chose. */
+    public static final String OVERLAY_STYLE = "overlay_style";
+    public static final String OVERLAY_STYLE_MODERN = "modern";
+    public static final String OVERLAY_STYLE_FLOAT = "float";
+    public static final String OVERLAY_STYLE_CLASSIC = "classic";
+    /** Lelo mode only; read as Modern whenever Lelo mode is off. See {@link #overlayStyle}. */
+    static final String OVERLAY_STYLE_CUTIE = "cutie";
+    /**
+     * Set once {@link #OVERLAY_STYLE} speaks the 0.8.4.0-beta.2 vocabulary. In beta.1 "float" named
+     * the design now called Modern, so a value stored before this flag means Modern. Backed up with
+     * the style, so restoring a beta.1 backup migrates it the same way.
+     */
+    static final String OVERLAY_STYLE_MIGRATED = "overlay_style_beta2";
+    /**
+     * The overlay's optional quick controls, all shown unless the user hides one. Hiding moves a
+     * control into the overlay's More menu; it never turns the feature off. See
+     * {@link OverlayControls}.
+     */
+    public static final String OVERLAY_SHOW_MODEL = "overlay_show_model";
+    public static final String OVERLAY_SHOW_HISTORY = "overlay_show_history";
+    public static final String OVERLAY_SHOW_NEW_CHAT = "overlay_show_new_chat";
+    public static final String OVERLAY_SHOW_SCREEN = "overlay_show_screen";
+    public static final String OVERLAY_SHOW_ATTACH = "overlay_show_attach";
+    public static final String OVERLAY_SHOW_VOICE = "overlay_show_voice";
+    /**
+     * Whether Orbit draws its own interactive back gesture when returning to the previous screen.
+     *
+     * <p>Deliberately not a switch for Android's Back gesture, which Orbit neither owns nor may
+     * disable. It chooses how a page leaves: on, Orbit moves the page with the finger and reveals
+     * the real screen underneath; off, the page leaves by the transition chosen under Page
+     * transitions. Back itself works identically either way — the system gesture, the navigation
+     * buttons, and every screen's own Back control all still go back.
+     *
+     * <p>The stored key is deliberately the original {@code enhanced_chat_back}. In v0.7.7.9 Beta 3
+     * the same preference stopped being about conversations alone and became "Swipe to go back"
+     * across the app, which is a wider meaning of the same choice rather than a different choice.
+     * Keeping the key is the migration: someone who turned this off in Beta 2 stays off, and nobody
+     * is opted back in by a rename.
+     */
+    public static final String ENHANCED_CHAT_BACK = "enhanced_chat_back";
+    /** Whether chat cards respond to horizontal drags. Menu Delete and Pin never depend on it. */
+    public static final String CHAT_SWIPE_ACTIONS = "chat_swipe_actions";
+    /**
+     * Whether Orbit Local's device-action model may be used as a semantic fallback.
+     *
+     * <p>Only ever consulted when that model is actually installed, so the default is simply
+     * "yes, use what you installed". Turning it off leaves the model on disk and stops it being
+     * consulted; deleting the model is the separate, storage-reclaiming action.
+     */
+    public static final String LOCAL_DEVICE_ACTIONS = "local_device_actions";
+    /**
+     * Whether the Chats header carries the Orbit Deck shortcut.
+     *
+     * <p>On by default, because a command centre nobody can find is not one. Turning it off removes
+     * the control rather than disabling it — no ghost, no reserved width — and Deck stays reachable
+     * from Settings, so the shortcut can never be the only way in.
+     */
+    public static final String DECK_SHORTCUT = "deck_shortcut";
+    /**
+     * Whether Deck may show its small Suggested section.
+     *
+     * <p>Suggestions are computed locally from state Orbit already has and never ask a provider
+     * anything. Off means the section does not exist and none of that state is read at all; My Deck
+     * is unaffected either way.
+     */
+    public static final String DECK_SUGGESTIONS = "deck_suggestions";
+    /**
+     * How the Vault list is ordered on this device.
+     *
+     * <p>Deliberately outside every Backup &amp; Restore key set below, alongside the Deck shortcut
+     * and the update channel. It is a view preference about this screen on this phone, not part of
+     * what the user saved, and a restored backup should not reorder somebody else's Vault.
+     */
+    public static final String VAULT_SORT = "vault_sort";
+    /**
+     * The Vault's current type and source filter, for the same reason the sort is remembered.
+     *
+     * <p>Kept so that opening a saved item and coming back does not silently throw away the
+     * narrowing the user just did, which is the whole point of narrowing. Two view preferences
+     * about this screen on this phone, deliberately outside every Backup &amp; Restore key set
+     * beside {@link #VAULT_SORT}: a restored backup must not decide what somebody else is looking
+     * at.
+     */
+    public static final String VAULT_TYPE_FILTER = "vault_type_filter";
+    public static final String VAULT_SOURCE_FILTER = "vault_source_filter";
+    public static final String VAULT_TOPIC_FILTER = "vault_topic_filter";
+    /**
+     * Whether Orbit Vault exists for this user at all.
+     *
+     * <p>On by default. Off removes every way into the Vault - the Chats header control, Save to
+     * Vault on an answer, the composer's Vault attachment, the Save to Vault choice on a share -
+     * and stops anything new being written, rather than leaving controls that look like they work.
+     *
+     * <p>It deletes nothing. Somebody who does not want the feature this month should not have to
+     * choose between a control they never use and losing what they saved, so everything stays
+     * exactly where it is and comes back untouched the moment this is turned on again. Erasing is
+     * a separate, deliberate act with its own confirmation.
+     *
+     * <p>Unlike {@link #VAULT_SORT}, which is a view preference about this screen on this phone,
+     * this is part of how the user has set Orbit up and travels in Backup &amp; Restore with the
+     * other feature switches.
+     */
+    public static final String VAULT_ENABLED = "vault_enabled";
+    // Onboarding keys intentionally remain outside Backup & Restore. A backup cannot
+    // restore account credentials, Android permissions, or default-assistant state.
+
+    public static final String PROVIDER_CHATGPT = "chatgpt";
+    public static final String PROVIDER_RELAY = "relay";
+    public static final String PROVIDER_LOCAL = "local";
+    public static final String PROVIDER_OPENROUTER = "openrouter";
+    public static final String PROVIDER_ANTHROPIC = "anthropic";
+    public static final String PROVIDER_XAI = "xai";
+
+    public static final String CHAT_TEXT_SMALL = "small";
+    public static final String CHAT_TEXT_DEFAULT = "default";
+    public static final String CHAT_TEXT_LARGE = "large";
+    public static final String CHAT_TEXT_EXTRA_LARGE = "extra_large";
+
+    public static final String WEATHER_UNITS_SYSTEM = "system";
+    public static final String WEATHER_UNITS_FAHRENHEIT = "fahrenheit";
+    public static final String WEATHER_UNITS_CELSIUS = "celsius";
+
+    /** Page-transition styles. Slide is Orbit's default for fresh installs and existing users. */
+    public static final String PAGE_TRANSITION_SLIDE = "slide";
+    public static final String PAGE_TRANSITION_FADE = "fade";
+    public static final String PAGE_TRANSITION_NONE = "none";
+
+    private Prefs() {}
+
+    private static final Set<String> BACKUP_STRING_KEYS = new HashSet<>(Arrays.asList(
+            MODEL, REASONING, INTELLIGENCE_MODE, AI_DEFAULT_MODEL, AI_DEFAULT_STRENGTH,
+            AI_MODEL_FAVORITES, AI_MODEL_RECENTS, AI_PROVIDER_DEFAULTS, ACCENT, USER_BUBBLE_COLOR,
+            ASSISTANT_BUBBLE_COLOR, CHAT_TEXT_SIZE, WEATHER_LOCATION, WEATHER_UNITS, APP_FONT,
+            QUICK_SETTINGS_ROUTINE_ID, PAGE_TRANSITION, OVERLAY_STYLE,
+            THEME_SURFACE, THEME_BACKGROUND, THEME_ID, THEME_NAME, THEME_MATERIAL,
+            THEME_PRO_BACKGROUND_EFFECT_COLOR));
+    private static final Set<String> BACKUP_BOOLEAN_KEYS = new HashSet<>(Arrays.asList(
+            OVERLAY_STYLE_MIGRATED, OVERLAY_SHOW_MODEL, OVERLAY_SHOW_HISTORY, OVERLAY_SHOW_NEW_CHAT,
+            OVERLAY_SHOW_SCREEN, OVERLAY_SHOW_ATTACH, OVERLAY_SHOW_VOICE, SCREEN_CONTEXT, SCREENSHOT, CONTEXT_CHIPS, ATTACH_SCREEN_BY_DEFAULT,
+            SPEAK, HAPTICS, AUTO_LISTEN, AUTO_LISTEN_ON_OPEN, SMART_FOLLOW_UPS,
+            VOICE_PAUSE_FRIENDLY, NEW_CHAT_ON_OPEN,
+            HISTORY_ENABLED, SAVE_SCREEN_THUMBNAILS, KEYBOARD_AWARE_ASSISTANT, SHOW_STOP_BUTTON,
+            THINKING_UPDATES, RICH_ANSWERS,
+            LELO_MODE, BACKGROUND_NOTIFICATIONS, WEATHER_USE_DEVICE_LOCATION,
+            MEMORY_ENABLED, MEMORY_USAGE_INDICATOR, MEMORY_SUGGESTIONS,
+            NOTIFICATION_AI_ENABLED, AMOLED_MODE, UPDATE_NOTIFICATIONS,
+            ENHANCED_CHAT_BACK, CHAT_SWIPE_ACTIONS, LOCAL_DEVICE_ACTIONS, VAULT_ENABLED,
+            // Auto's non-metered permissions and the new-chat default travel with a backup. The
+            // Anthropic and xAI opt-ins deliberately do not: credentials never restore, and a key
+            // added later on another phone must not start spending through Auto by itself.
+            AI_DEFAULT_AUTO, AUTO_USE_CHATGPT, AUTO_USE_LOCAL));
+    // The Pro styling keys are backed up with the rest of the appearance. They describe a theme
+    // the person built, not an entitlement: restoring them onto a Free device stores values that
+    // simply do not draw, and restoring them onto a Pro one gives somebody their theme back.
+    private static final Set<String> BACKUP_INTEGER_KEYS = new HashSet<>(
+            Arrays.asList(NOTIFICATION_RETENTION_DAYS, THEME_SCHEMA,
+                    THEME_PRO_BUBBLE_RADIUS, THEME_PRO_BUBBLE_OUTLINE,
+                    THEME_PRO_GLASS_OPACITY, THEME_PRO_GLASS_TINT, THEME_PRO_GLASS_EDGE,
+                    THEME_PRO_BACKGROUND_MODE, THEME_PRO_GRADIENT_DIRECTION,
+                    THEME_PRO_GLOW_STRENGTH, THEME_PRO_GLOW_SIZE, THEME_PRO_GLOW_POSITION,
+                    THEME_PRO_GRADIENT_STRENGTH));
+
+    public static SharedPreferences get(Context context) {
+        return context.getSharedPreferences(FILE, Context.MODE_PRIVATE);
+    }
+
+    /** Explicitly excludes provider connection details, tokens, and encrypted credentials. */
+    static JSONObject backupSnapshot(Context c) throws Exception {
+        JSONObject out = new JSONObject();
+        SharedPreferences p = get(c);
+        for (String key : BACKUP_STRING_KEYS) if (p.contains(key)) out.put(key, p.getString(key, ""));
+        for (String key : BACKUP_BOOLEAN_KEYS) if (p.contains(key)) out.put(key, p.getBoolean(key, false));
+        for (String key : BACKUP_INTEGER_KEYS) if (p.contains(key)) out.put(key, p.getInt(key, 0));
+        return out;
+    }
+
+    static boolean validBackupSnapshot(JSONObject values) {
+        if (values == null) return false;
+        java.util.Iterator<String> keys = values.keys();
+        while (keys.hasNext()) {
+            String key = keys.next();
+            Object value = values.opt(key);
+            if (BACKUP_STRING_KEYS.contains(key)) {
+                if (!(value instanceof String)) return false;
+            } else if (BACKUP_BOOLEAN_KEYS.contains(key)) {
+                if (!(value instanceof Boolean)) return false;
+            } else if (BACKUP_INTEGER_KEYS.contains(key)) {
+                if (!(value instanceof Number)) return false;
+            } else {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    static boolean restoreBackupSnapshot(Context c, JSONObject values) {
+        if (!validBackupSnapshot(values)) return false;
+        SharedPreferences.Editor e = get(c).edit();
+        for (String key : BACKUP_STRING_KEYS) e.remove(key);
+        for (String key : BACKUP_BOOLEAN_KEYS) e.remove(key);
+        for (String key : BACKUP_INTEGER_KEYS) e.remove(key);
+        // A restored backup may carry only the retired mode keys; letting the AI selection migrate
+        // again from what was restored is what makes an old backup mean what it meant.
+        e.remove(AiSelections.MIGRATED_CHATS);
+        java.util.Iterator<String> keys = values.keys();
+        while (keys.hasNext()) {
+            String key = keys.next();
+            if (BACKUP_STRING_KEYS.contains(key)) e.putString(key, values.optString(key, ""));
+            else if (BACKUP_BOOLEAN_KEYS.contains(key)) e.putBoolean(key, values.optBoolean(key));
+            else if (BACKUP_INTEGER_KEYS.contains(key)) e.putInt(key, values.optInt(key));
+        }
+        return e.commit();
+    }
+
+    public static String provider(Context c) {
+        return normalizeProvider(get(c).getString(PROVIDER, PROVIDER_CHATGPT));
+    }
+
+    /** Unknown stored provider ids resolve to ChatGPT rather than to undefined behavior. */
+    public static String normalizeProvider(String provider) {
+        if (PROVIDER_CHATGPT.equals(provider) || PROVIDER_RELAY.equals(provider) ||
+                PROVIDER_LOCAL.equals(provider) || PROVIDER_OPENROUTER.equals(provider)
+                || PROVIDER_ANTHROPIC.equals(provider) || PROVIDER_XAI.equals(provider)) return provider;
+        return PROVIDER_CHATGPT;
+    }
+    public static String backendUrl(Context c) { return get(c).getString(BACKEND_URL, "").trim(); }
+    public static String token(Context c) { return SecureStore.loadRelayToken(c); }
+    public static boolean relayConfigured(Context c) {
+        return backendUrl(c).startsWith("https://");
+    }
+
+    /** Save the existing HTTPS-relay configuration without ever handling a raw OpenAI API key. */
+    public static String saveRelaySettings(Context c, String rawUrl, String relayToken) {
+        String url = rawUrl == null ? "" : rawUrl.trim();
+        if (!url.isEmpty() && !url.startsWith("https://")) return "Use an HTTPS relay URL.";
+        SecureStore.saveRelayToken(c, relayToken == null ? "" : relayToken.trim());
+        get(c).edit().putString(BACKEND_URL, url).apply();
+        return "";
+    }
+    public static boolean screenContext(Context c) { return get(c).getBoolean(SCREEN_CONTEXT, true); }
+    public static boolean screenshot(Context c) { return get(c).getBoolean(SCREENSHOT, true); }
+    public static boolean contextChips(Context c) { return get(c).getBoolean(CONTEXT_CHIPS, true); }
+    public static boolean attachScreenByDefault(Context c) { return get(c).getBoolean(ATTACH_SCREEN_BY_DEFAULT, false); }
+    public static boolean swipeToGoBack(Context c) { return get(c).getBoolean(ENHANCED_CHAT_BACK, true); }
+    public static boolean chatSwipeActions(Context c) { return get(c).getBoolean(CHAT_SWIPE_ACTIONS, true); }
+    public static boolean localDeviceActions(Context c) { return get(c).getBoolean(LOCAL_DEVICE_ACTIONS, true); }
+    public static boolean deckShortcut(Context c) { return get(c).getBoolean(DECK_SHORTCUT, true); }
+    public static boolean deckSuggestions(Context c) { return get(c).getBoolean(DECK_SUGGESTIONS, true); }
+
+    /**
+     * Whether Orbit Vault is switched on. On for a fresh install and for every existing user.
+     *
+     * <p>Defaulting to true is what keeps Beta 1's Vaults working: nobody set this preference,
+     * so nobody should find their saved items unreachable after an update.
+     */
+    public static boolean vaultEnabled(Context c) { return get(c).getBoolean(VAULT_ENABLED, true); }
+
+    // ---- Smart Vault (v0.8.1.0-beta.1). Every one of these is off until the user turns it on. ----
+
+    /** Local indexing: recognising text in saved pictures and indexing everything on this device. */
+    public static final String SMART_VAULT_ENABLED = "smart_vault_enabled";
+    /** Search by meaning, which needs the downloaded on-device model. */
+    public static final String SMART_VAULT_MEANING = "smart_vault_meaning";
+    /** Sending newly saved items to the active AI provider for a title, summary and topics. */
+    public static final String SMART_VAULT_AI_NEW = "smart_vault_ai_new_items";
+    /** Reading the web page behind a saved link so its words become searchable. */
+    public static final String SMART_VAULT_READ_LINKS = "smart_vault_read_links";
+    /** Recognising text in saved pictures, on this device, with Google ML Kit. */
+    public static final String SMART_VAULT_OCR = "smart_vault_ocr";
+    /** Whether the Vault's one-time Smart Vault introduction was dismissed. */
+    public static final String SMART_VAULT_INTRO_DISMISSED = "smart_vault_intro_dismissed";
+
+    public static boolean smartVaultEnabled(Context c) {
+        return vaultEnabled(c) && get(c).getBoolean(SMART_VAULT_ENABLED, false);
+    }
+    public static boolean smartVaultOcr(Context c) {
+        return smartVaultEnabled(c) && get(c).getBoolean(SMART_VAULT_OCR, false);
+    }
+    public static boolean smartVaultMeaning(Context c) {
+        return smartVaultEnabled(c) && get(c).getBoolean(SMART_VAULT_MEANING, false);
+    }
+    public static boolean smartVaultAiForNewItems(Context c) {
+        return smartVaultEnabled(c) && get(c).getBoolean(SMART_VAULT_AI_NEW, false);
+    }
+    public static boolean smartVaultReadLinks(Context c) {
+        return smartVaultEnabled(c) && get(c).getBoolean(SMART_VAULT_READ_LINKS, false);
+    }
+
+    /** The Vault's list order. Newest first for a fresh install and for any unreadable value. */
+    public static OrbitVaultStore.Sort vaultSort(Context c) {
+        return OrbitVaultStore.Sort.fromId(get(c).getString(VAULT_SORT, OrbitVaultStore.Sort.NEWEST.id));
+    }
+
+    public static void setVaultSort(Context c, OrbitVaultStore.Sort sort) {
+        get(c).edit().putString(VAULT_SORT,
+                (sort == null ? OrbitVaultStore.Sort.NEWEST : sort).id).apply();
+    }
+
+    /**
+     * The type and source the Vault is currently narrowed to, with no query.
+     *
+     * <p>The query is deliberately not stored. A search is something the user is doing right now
+     * and re-reading it out of a preference days later would reopen the Vault already hiding most
+     * of itself with no obvious reason why; a type chip is visible on the screen that is applying
+     * it. An unreadable or withdrawn value reads as All, so nothing can strand the collection.
+     */
+    public static OrbitVaultFilter vaultFilter(Context c) {
+        return new OrbitVaultFilter(
+                OrbitVaultFilter.Type.fromId(get(c).getString(VAULT_TYPE_FILTER,
+                        OrbitVaultFilter.Type.ALL.id)),
+                get(c).getString(VAULT_SOURCE_FILTER, ""),
+                "",
+                get(c).getString(VAULT_TOPIC_FILTER, ""));
+    }
+
+    public static void setVaultFilter(Context c, OrbitVaultFilter filter) {
+        OrbitVaultFilter applied = filter == null ? OrbitVaultFilter.NONE : filter;
+        get(c).edit()
+                .putString(VAULT_TYPE_FILTER, applied.type.id)
+                .putString(VAULT_SOURCE_FILTER, applied.source)
+                .putString(VAULT_TOPIC_FILTER, applied.topic)
+                .apply();
+    }
+
+    public static boolean speak(Context c) { return get(c).getBoolean(SPEAK, true); }
+    public static boolean haptics(Context c) { return get(c).getBoolean(HAPTICS, true); }
+    public static boolean autoListen(Context c) { return get(c).getBoolean(AUTO_LISTEN, false); }
+    public static boolean autoListenOnOpen(Context c) { return get(c).getBoolean(AUTO_LISTEN_ON_OPEN, false); }
+    public static boolean smartFollowUps(Context c) { return get(c).getBoolean(SMART_FOLLOW_UPS, true); }
+    public static boolean voicePauseFriendly(Context c) { return get(c).getBoolean(VOICE_PAUSE_FRIENDLY, true); }
+    public static boolean newChatOnOpen(Context c) { return get(c).getBoolean(NEW_CHAT_ON_OPEN, true); }
+    public static boolean historyEnabled(Context c) { return get(c).getBoolean(HISTORY_ENABLED, true); }
+    public static boolean saveScreenThumbnails(Context c) { return get(c).getBoolean(SAVE_SCREEN_THUMBNAILS, false); }
+    public static boolean keyboardAwareAssistant(Context c) { return get(c).getBoolean(KEYBOARD_AWARE_ASSISTANT, true); }
+    public static boolean showStopButton(Context c) { return get(c).getBoolean(SHOW_STOP_BUTTON, true); }
+
+    /**
+     * The answer for someone who has never expressed a preference.
+     *
+     * <p>v0.7.7.8 Beta 1 shipped this off, because at that point nobody knew whether the ChatGPT
+     * backend would produce real reasoning summaries or whether the status line would behave on a
+     * real device. Galaxy S25 Ultra testing answered both: genuine provider summaries arrive, the
+     * handoff to the answer is clean, and the answer is not delayed. So it now belongs in Orbit's
+     * normal experience and is on unless the user says otherwise.
+     */
+    public static final boolean THINKING_UPDATES_DEFAULT = true;
+
+    /**
+     * Whether Orbit shows brief status updates beside the thinking indicator while it works.
+     *
+     * <p>The default only ever applies to an <em>absent</em> preference, which is exactly the
+     * behaviour this needs. Someone upgrading from v0.7.7.7 has never stored a value and gets the
+     * new default; someone who turned it off in Beta 1 has {@code false} stored and keeps it. That
+     * distinction is the whole reason nothing here writes a value: an explicit choice is only ever
+     * created by the user touching the switch, so no update can overwrite one.
+     */
+    public static boolean thinkingUpdates(Context c) {
+        return get(c).getBoolean(THINKING_UPDATES, THINKING_UPDATES_DEFAULT);
+    }
+
+    /** Rich Answers ship on: a sourced picture is part of the answer, not an extra. */
+    public static final boolean RICH_ANSWERS_DEFAULT = true;
+
+    /**
+     * Whether Orbit may show sourced web pictures inside answers.
+     *
+     * <p>Read at the moment a completed answer is examined rather than cached with the request, so
+     * turning it off stops the very next answer from looking anything up. Off means Orbit contacts
+     * no page and no image host at all; answers already carrying a picture keep it, because it is
+     * part of what Orbit said and this switch is about future lookups rather than past ones.
+     */
+    public static boolean richAnswers(Context c) {
+        return get(c).getBoolean(RICH_ANSWERS, RICH_ANSWERS_DEFAULT);
+    }
+    public static String userBubbleColor(Context c) { return get(c).getString(USER_BUBBLE_COLOR, "classic"); }
+    public static String assistantBubbleColor(Context c) { return get(c).getString(ASSISTANT_BUBBLE_COLOR, "classic"); }
+    public static String chatTextSize(Context c) {
+        String value = get(c).getString(CHAT_TEXT_SIZE, CHAT_TEXT_DEFAULT);
+        if (CHAT_TEXT_SMALL.equals(value) || CHAT_TEXT_LARGE.equals(value) ||
+                CHAT_TEXT_EXTRA_LARGE.equals(value)) return value;
+        return CHAT_TEXT_DEFAULT;
+    }
+    public static float chatTextScale(Context c) {
+        String value = chatTextSize(c);
+        if (CHAT_TEXT_SMALL.equals(value)) return 0.88f;
+        if (CHAT_TEXT_LARGE.equals(value)) return 1.15f;
+        if (CHAT_TEXT_EXTRA_LARGE.equals(value)) return 1.30f;
+        return 1f;
+    }
+    public static float chatTextSp(Context c, float defaultSizeSp) {
+        return defaultSizeSp * chatTextScale(c);
+    }
+    public static boolean leloMode(Context c) { return get(c).getBoolean(LELO_MODE, false); }
+    public static boolean backgroundNotifications(Context c) { return get(c).getBoolean(BACKGROUND_NOTIFICATIONS, false); }
+    public static String weatherLocation(Context c) { return get(c).getString(WEATHER_LOCATION, "").trim(); }
+    public static boolean weatherUseDeviceLocation(Context c) { return get(c).getBoolean(WEATHER_USE_DEVICE_LOCATION, false); }
+    /**
+     * Selected page-transition style, falling back to Slide for anyone who has never chosen one
+     * and for any unrecognised stored value.
+     */
+    public static String pageTransition(Context c) {
+        String value = get(c).getString(PAGE_TRANSITION, PAGE_TRANSITION_SLIDE);
+        if (PAGE_TRANSITION_FADE.equals(value) || PAGE_TRANSITION_NONE.equals(value)) return value;
+        return PAGE_TRANSITION_SLIDE;
+    }
+
+    public static String overlayStyle(Context c) {
+        SharedPreferences p = get(c);
+        String value = p.getString(OVERLAY_STYLE, null);
+        if (!p.getBoolean(OVERLAY_STYLE_MIGRATED, false)) {
+            if (OVERLAY_STYLE_FLOAT.equals(value)) value = OVERLAY_STYLE_MODERN;
+            SharedPreferences.Editor e = p.edit().putBoolean(OVERLAY_STYLE_MIGRATED, true);
+            if (value != null) e.putString(OVERLAY_STYLE, value);
+            e.apply();
+        }
+        if (OVERLAY_STYLE_FLOAT.equals(value) || OVERLAY_STYLE_CLASSIC.equals(value)) return value;
+        // Gated on read, never rewritten: with Lelo mode off it is simply Modern, and turning
+        // Lelo mode back on brings the stored choice straight back.
+        if (OVERLAY_STYLE_CUTIE.equals(value) && leloMode(c)) return value;
+        return OVERLAY_STYLE_MODERN;
+    }
+
+    /**
+     * Set once per install by {@link #keepClassicForStableUpgrade}. Deliberately not backed up: it
+     * records what this install was updated from, not a choice.
+     */
+    static final String OVERLAY_STYLE_STABLE_UPGRADE = "overlay_style_stable_0840";
+
+    /**
+     * 0.8.4.0's one-time upgrade rule. Someone updating from 0.8.3 Stable has only ever had the
+     * Classic overlay, so they keep it, stored as an explicit choice they can change at any time.
+     * That is recognised as: the package was updated rather than freshly installed, no style is
+     * stored, and no overlay-aware version ever resolved one (every Beta from Beta 2 on sets
+     * {@link #OVERLAY_STYLE_MIGRATED} the first time it does). Fresh installs and Beta users keep
+     * the Modern default and their own choices. Runs at most once, and only writes a missing value.
+     */
+    static void keepClassicForStableUpgrade(Context c, boolean packageWasUpdated) {
+        SharedPreferences p = get(c);
+        if (p.getBoolean(OVERLAY_STYLE_STABLE_UPGRADE, false)) return;
+        SharedPreferences.Editor e = p.edit().putBoolean(OVERLAY_STYLE_STABLE_UPGRADE, true);
+        if (packageWasUpdated && !p.contains(OVERLAY_STYLE)
+                && !p.getBoolean(OVERLAY_STYLE_MIGRATED, false)) {
+            e.putString(OVERLAY_STYLE, OVERLAY_STYLE_CLASSIC).putBoolean(OVERLAY_STYLE_MIGRATED, true);
+        }
+        e.apply();
+    }
+
+    /** The only writer of {@link #OVERLAY_STYLE}, so a chosen Float is never read as beta.1's. */
+    public static void setOverlayStyle(Context c, String style) {
+        get(c).edit().putString(OVERLAY_STYLE, style)
+                .putBoolean(OVERLAY_STYLE_MIGRATED, true).apply();
+    }
+
+    public static String weatherUnits(Context c) {
+        String value = get(c).getString(WEATHER_UNITS, WEATHER_UNITS_SYSTEM);
+        if (WEATHER_UNITS_FAHRENHEIT.equals(value) || WEATHER_UNITS_CELSIUS.equals(value))
+            return value;
+        return WEATHER_UNITS_SYSTEM;
+    }
+    public static boolean memoryEnabled(Context c) { return get(c).getBoolean(MEMORY_ENABLED, true); }
+    public static boolean memoryUsageIndicator(Context c) { return get(c).getBoolean(MEMORY_USAGE_INDICATOR, false); }
+    public static boolean memorySuggestions(Context c) { return get(c).getBoolean(MEMORY_SUGGESTIONS, true); }
+    public static boolean notificationAiEnabled(Context c) { return get(c).getBoolean(NOTIFICATION_AI_ENABLED, true); }
+    public static int notificationRetentionDays(Context c) { return Math.max(1, Math.min(30, get(c).getInt(NOTIFICATION_RETENTION_DAYS, 7))); }
+    public static boolean amoledMode(Context c) { return get(c).getBoolean(AMOLED_MODE, false); }
+    public static String appFont(Context c) { return get(c).getString(APP_FONT, "orbit_default"); }
+    public static boolean updateNotifications(Context c) { return get(c).getBoolean(UPDATE_NOTIFICATIONS, true); }
+
+    /**
+     * The selected update channel, always Stable unless this device explicitly opted in.
+     *
+     * <p>Anything unrecognised — an absent key on a device upgrading from an older Orbit, or a
+     * value that somehow got corrupted — resolves to Stable. There is no state in which a user
+     * ends up on Beta without having chosen it.
+     */
+    public static String updateChannel(Context c) {
+        return normalizeChannel(get(c).getString(UPDATE_CHANNEL, CHANNEL_STABLE));
+    }
+
+    public static String normalizeChannel(String channel) {
+        return CHANNEL_BETA.equals(channel) ? CHANNEL_BETA : CHANNEL_STABLE;
+    }
+
+    public static boolean betaChannel(Context c) {
+        return CHANNEL_BETA.equals(updateChannel(c));
+    }
+
+    /**
+     * Records the channel and clears the update state the old channel owned.
+     *
+     * <p>Written with {@code commit} rather than {@code apply}: the very next thing the caller does
+     * is start a fresh check, and that check must not race a channel value still sitting in memory.
+     */
+    public static boolean setUpdateChannel(Context c, String channel) {
+        String value = normalizeChannel(channel);
+        if (value.equals(updateChannel(c))) return true;
+        boolean saved = get(c).edit().putString(UPDATE_CHANNEL, value).commit();
+        if (saved) OrbitUpdater.onChannelChanged(c);
+        return saved;
+    }
+
+    /**
+     * The stored Orbit Pro preview selection, always Free unless a tester explicitly chose Pro.
+     *
+     * <p>Anything unrecognised resolves to Free, for the same reason the update channel does:
+     * there must be no state in which a corrupted or unexpected value produces the unlocked one.
+     *
+     * <p>Reading this is not the same as honoring it. {@link OrbitProEntitlement} decides whether
+     * the running build may honor the override at all, and a Stable build never does.
+     */
+    public static String proPreview(Context c) {
+        return normalizeProPreview(get(c).getString(PRO_PREVIEW, PRO_PREVIEW_FREE));
+    }
+
+    public static String normalizeProPreview(String value) {
+        return PRO_PREVIEW_PRO.equals(value) ? PRO_PREVIEW_PRO : PRO_PREVIEW_FREE;
+    }
+
+    /** Whether the stored selection is Pro Preview. Says nothing about effective entitlement. */
+    public static boolean proPreviewSelected(Context c) {
+        return PRO_PREVIEW_PRO.equals(proPreview(c));
+    }
+
+    /**
+     * Records the selection, with {@code commit} rather than {@code apply}.
+     *
+     * <p>The whole point of the control is that the next thing read reflects the new state, on the
+     * same screen, in the same frame. A value still sitting in memory would make the selector and
+     * the entitlement it is meant to demonstrate disagree for exactly as long as it took somebody
+     * to notice.
+     */
+    public static boolean setProPreview(Context c, String value) {
+        return get(c).edit().putString(PRO_PREVIEW, normalizeProPreview(value)).commit();
+    }
+
+    /** How the selection reads to a person. */
+    public static String proPreviewLabel(String value) {
+        return PRO_PREVIEW_PRO.equals(normalizeProPreview(value)) ? "Pro Preview" : "Free";
+    }
+
+    public static String quickSettingsRoutineId(Context c) {
+        return get(c).getString(QUICK_SETTINGS_ROUTINE_ID, "").trim();
+    }
+    public static boolean setQuickSettingsRoutineId(Context c, String routineId) {
+        SharedPreferences.Editor editor = get(c).edit();
+        String clean = routineId == null ? "" : routineId.trim();
+        if (clean.isEmpty()) editor.remove(QUICK_SETTINGS_ROUTINE_ID);
+        else editor.putString(QUICK_SETTINGS_ROUTINE_ID, clean);
+        return editor.commit();
+    }
+}

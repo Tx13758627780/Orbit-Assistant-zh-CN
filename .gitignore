@@ -1,0 +1,57 @@
+# Gradle and Android build output
+.gradle/
+build/
+app/build/
+**/build/
+.kotlin/
+.cxx/
+.externalNativeBuild/
+captures/
+
+# Local machine configuration
+local.properties
+.claude/
+
+# Android Studio / IntelliJ IDEA
+.idea/
+*.iml
+*.ipr
+*.iws
+out/
+
+# Generated packages and build logs
+*.apk
+*.apk.sha256.txt
+*.aab
+*.apks
+*.log
+
+# Secrets and signing material
+.env
+.env.*
+!.env.example
+orbit-signing.properties
+*.jks
+*.keystore
+*.p12
+*.pfx
+*.pem
+*.key
+
+# Key-export output and Play Console credentials. Orbit never exports its GitHub release key to
+# Google Play (docs/PLAY_STORE.md section 5); these stay ignored as a safety net.
+orbit-app-signing-key*
+encryption_public_key*
+pepk*.zip
+play-service-account*.json
+
+# OS/editor temporary files
+.DS_Store
+Thumbs.db
+Desktop.ini
+*.swp
+*.swo
+*~
+
+# Explicitly published, already-signed community APK requested for source distribution
+!releases/v0.8.4.1-zh-CN-OnePlus-Dock-fix2/Orbit-Assistant-v0.8.4.1-zh-CN-OnePlus-Dock-fix2.apk

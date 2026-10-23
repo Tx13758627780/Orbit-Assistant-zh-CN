@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Orbit 本地 AI</string>
+    <string name="orbit_local_bind_permission_label">运行 Orbit 本地 AI</string>
+    <string name="orbit_local_bind_permission_description">允许 Orbit 在本机私密运行 AI。</string>
+</resources>

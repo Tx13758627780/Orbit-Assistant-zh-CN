@@ -1,0 +1,490 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
+
+    <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.RECORD_AUDIO" />
+    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
+    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
+    <uses-permission android:name="android.permission.ACCESS_BACKGROUND_LOCATION" />
+    <uses-permission android:name="android.permission.CAMERA" />
+    <uses-permission android:name="android.permission.VIBRATE" />
+    <uses-permission android:name="android.permission.READ_CONTACTS" />
+    <!--
+      Orbit's direct Calendar control (ADD_CALENDAR_EVENTS).
+
+      Declared here, but deliberately never requested during onboarding or installation. Orbit
+      asks for these at the moment a Calendar action is actually approved, and a denial produces
+      zero writes rather than a partially applied schedule.
+
+      READ_CALENDAR is not optional alongside WRITE_CALENDAR: Orbit has to see which calendars are
+      writable before it can choose one, and has to read back what it inserted before it is allowed
+      to claim an event was added. It is also what makes duplicate detection possible, so importing
+      the same schedule twice converges on one copy of each event instead of two.
+    -->
+    <uses-permission android:name="android.permission.READ_CALENDAR" />
+    <uses-permission android:name="android.permission.WRITE_CALENDAR" />
+    <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
+    <uses-permission android:name="android.permission.WRITE_SETTINGS" />
+    <uses-permission android:name="android.permission.ACCESS_NOTIFICATION_POLICY" />
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" />
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+    <uses-permission android:name="com.android.alarm.permission.SET_ALARM" />
+    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
+    <!--
+      Required before Orbit may ask Android to remove the optional Orbit Local component.
+
+      Android has demanded this of any app targeting API 28 or above since Android 9; Orbit targets
+      36. Without it the platform's uninstaller logs the refusal and finishes without ever drawing
+      its confirmation, while startActivity returns as though all was well. That is exactly what
+      v0.7.7.5 did on a Galaxy S25 Ultra: Orbit's dialog closed, Android's never opened, and the
+      component stayed installed with nothing reported.
+
+      Normal protection level, so declaring it is all that is needed — there is no runtime prompt.
+      It only ever lets an app *ask*; Android still draws the confirmation and the user still
+      decides. Orbit aims it at one hardcoded package, com.orbit.assistant.local, and treats the
+      package manager's own answer afterwards as the only proof of what happened.
+    -->
+    <uses-permission android:name="android.permission.REQUEST_DELETE_PACKAGES" />
+    <!--
+      Declared by the optional Orbit Local component at signature protection level, so Android
+      grants it only because both APKs carry Orbit's permanent release certificate. Without it
+      bindService to the component's service is refused outright, whatever the package visibility
+      rules say: visibility decides whether Orbit can see the package, this decides whether Orbit
+      is allowed to talk to it.
+    -->
+    <uses-permission android:name="com.orbit.assistant.permission.BIND_ORBIT_LOCAL" />
+
+    <queries>
+        <!--
+          The optional Orbit Local component, named exactly and on its own.
+
+          Orbit targets an Android where package visibility is filtered by default: without this,
+          getPackageInfo for the component throws NameNotFoundException even when the package is
+          installed and Android has just reported "Install success". That is exactly how
+          v0.7.7.5-beta.2 came to show "Not installed" for a component sitting on the device.
+
+          Deliberately one <package> entry and never QUERY_ALL_PACKAGES. Orbit needs to see its own
+          optional component and nothing else. Visibility is not trust: OrbitLocalComponent still
+          requires the exact package, Orbit's permanent signing certificate, the matching version,
+          and a compatible protocol before a single request crosses the boundary.
+        -->
+        <package android:name="com.orbit.assistant.local" />
+        <intent>
+            <action android:name="android.speech.RecognitionService" />
+        </intent>
+        <intent>
+            <action android:name="android.intent.action.MAIN" />
+            <category android:name="android.intent.category.LAUNCHER" />
+        </intent>
+        <intent>
+            <action android:name="android.intent.action.PICK" />
+            <data android:mimeType="image/*" />
+        </intent>
+        <intent>
+            <action android:name="android.intent.action.GET_CONTENT" />
+            <data android:mimeType="image/*" />
+        </intent>
+    </queries>
+
+    <!--
+      OrbitApplication exists so Android learns every Orbit notification category at start-up
+      rather than the first time each one happens to fire. Without it the Notification categories
+      list under Settings differs between devices depending on which features have run there.
+      It registers channel metadata and nothing else: no notification is posted, no permission is
+      requested, and no network work happens.
+    -->
+    <application
+        android:name=".OrbitApplication"
+        android:localeConfig="@xml/locales_config"
+        android:allowBackup="false"
+        android:enableOnBackInvokedCallback="false"
+        android:icon="@drawable/ic_orbit"
+        android:label="@string/app_name"
+        android:roundIcon="@drawable/ic_orbit"
+        android:supportsRtl="true"
+        android:theme="@style/Theme.Orbit"
+        android:usesCleartextTraffic="false">
+
+        <!--
+          android:enableOnBackInvokedCallback="false" on <application> is the Android 16 (API 36)
+          migration, and it changes nothing that was working. Before API 36 an undeclared screen
+          defaulted to false; from API 36 it defaults to true, which would silently stop
+          onBackPressed on every LOCAL screen below, on the bridges, and on the Side-button overlay
+          window (OrbitSession.onBackPressed), which is not an Activity and so takes the
+          application-level value. Declaring the old default keeps every one of them exactly as
+          it was, while each migrated activity still opts in with its own "true", which Android
+          lets override the application value.
+        -->
+        <!--
+          android:enableOnBackInvokedCallback is declared per activity, and only on the ones that
+          have actually been migrated to Orbit's shared back navigation. It is not a decoration: a
+          screen that opts in stops having onBackPressed called at all on API 33+, so opting one in
+          without migrating it would hand Back straight to the platform and skip that screen's own
+          discard prompt or cancelled result.
+
+          Which screens qualify is decided in OrbitNavigation, not here, and the two are kept in
+          step by OrbitNavigationPolicyTest. Every opted-in screen registers something on API 33+
+          through OrbitPredictiveBack — the drawn gesture where the device and the preference allow
+          it, and otherwise a plain callback that performs the same Back — so the confirmation on an
+          editor is reached on every device and at every setting. Screens classified LOCAL, such as
+          the invisible permission bridges, screen selection, widget configuration and onboarding,
+          deliberately do not appear below and keep their own onBackPressed.
+        -->
+        <activity
+            android:name=".MainActivity"
+            android:enableOnBackInvokedCallback="true"
+            android:exported="true"
+            android:windowSoftInputMode="adjustResize">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+            <intent-filter>
+                <action android:name="android.intent.action.ASSIST" />
+                <category android:name="android.intent.category.DEFAULT" />
+            </intent-filter>
+        </activity>
+
+        <!--
+          parentActivityName is Up metadata and nothing more. v0.7.7.9 Beta 1 expected it to give a
+          conversation opened from a widget, a notification, or the assistant overlay a real Chats
+          screen to go back to; it does not. The platform consults it for Up navigation and for
+          stacks built explicitly with TaskStackBuilder, never for an ordinary Back, so a
+          conversation launched on its own was still the root of its task and Back still ended at
+          the launcher. Building the stack is what fixes that, and ChatActivity.stackFor does it
+          for every surface outside Chats. This stays because Up metadata is still true.
+        -->
+        <activity android:name=".ChatActivity" android:exported="false"
+            android:enableOnBackInvokedCallback="true"
+            android:parentActivityName=".MainActivity"
+            android:windowSoftInputMode="adjustResize" />
+        <!--
+          Share to Orbit.
+
+          Exported because a share target has to be, and deliberately the only exported surface
+          that reads content from another app. It draws nothing, keeps nothing, and hands what was
+          shared to a normal Orbit conversation composer without sending it.
+
+          The MIME filters are a promise about what Orbit can actually read, so they list exactly
+          what AttachmentLoader handles: text (which covers a shared URL), images, PDFs, and
+          text-based files. There is deliberately no */* filter — appearing in every share sheet
+          only to reject most of what arrives would be worse than not appearing.
+
+          excludeFromRecents and noHistory because this is a doorway, not a screen: it must never
+          become a card in Recents, and returning to it later would mean returning to an already
+          consumed share.
+        -->
+        <activity
+            android:name=".ShareToOrbitActivity"
+            android:exported="true"
+            android:excludeFromRecents="true"
+            android:noHistory="true"
+            android:label="@string/app_name"
+            android:theme="@style/Theme.Orbit.Bridge">
+            <intent-filter>
+                <action android:name="android.intent.action.SEND" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:mimeType="text/*" />
+                <data android:mimeType="image/*" />
+                <data android:mimeType="application/pdf" />
+            </intent-filter>
+            <intent-filter>
+                <action android:name="android.intent.action.SEND_MULTIPLE" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:mimeType="image/*" />
+                <data android:mimeType="application/pdf" />
+                <data android:mimeType="text/*" />
+            </intent-filter>
+        </activity>
+        <!--
+          Ask Orbit, from Android's text-selection menu.
+
+          Exported because ACTION_PROCESS_TEXT is invoked by the app the user is selecting text in,
+          and the platform will not offer an unexported handler at all. It is the second and last
+          exported surface that reads content from another app, and it is deliberately narrower
+          than the share doorway: one action, one MIME type, no streams, no URI grants.
+
+          text/plain only. PROCESS_TEXT is defined for plain text, and claiming anything wider
+          would put Orbit in menus it has nothing to offer.
+
+          Orbit never returns a result from this Activity, so the source app replaces nothing. This
+          is Ask Orbit, not Replace with Orbit.
+
+          excludeFromRecents and noHistory because this is a doorway, not a screen: it must never
+          become a card in Recents, and returning to it later would mean returning to an already
+          consumed selection.
+        -->
+        <activity
+            android:name=".ProcessTextToOrbitActivity"
+            android:exported="true"
+            android:excludeFromRecents="true"
+            android:noHistory="true"
+            android:label="@string/process_text_label"
+            android:theme="@style/Theme.Orbit.Bridge">
+            <intent-filter>
+                <action android:name="android.intent.action.PROCESS_TEXT" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:mimeType="text/plain" />
+            </intent-filter>
+        </activity>
+        <!--
+          The full-screen attachment viewer.
+
+          Not exported: it is opened from inside Orbit with a private token naming a session held
+          in this process, and nothing outside Orbit could name one.
+
+          Deliberately without enableOnBackInvokedCallback. It is classified LOCAL in
+          OrbitNavigation, so Back closes it plainly rather than through the app-wide predictive
+          page gesture — which would otherwise be tracking the same horizontal finger movement as
+          panning a zoomed photo.
+        -->
+        <activity android:name=".AttachmentViewerActivity" android:exported="false" />
+        <!-- Native local PDF viewer. Kept non-exported and out of predictive horizontal Back
+             because its page pan/swipe owns the same gesture space as the image viewer. -->
+        <activity android:name=".DocumentViewerActivity" android:exported="false" />
+        <activity android:name=".ScreenSelectionActivity" android:exported="false"
+            android:excludeFromRecents="true" />
+        <activity android:name=".AttachmentPickerActivity" android:exported="false"
+            android:excludeFromRecents="true" android:theme="@style/Theme.Orbit.Bridge" />
+        <!--
+          Where Orbit asks Android for Calendar permission.
+
+          An invisible bridge, because the Side-button overlay is a VoiceInteractionSession and
+          cannot request runtime permissions itself. Both surfaces therefore reach the same Android
+          prompt through this Activity, and both learn the real grant result rather than assuming
+          that opening the prompt succeeded.
+        -->
+        <activity android:name=".CalendarPermissionActivity" android:exported="false"
+            android:excludeFromRecents="true" android:theme="@style/Theme.Orbit.Bridge" />
+        <activity android:name=".SettingsActivity"
+            android:enableOnBackInvokedCallback="true" android:exported="false" android:windowSoftInputMode="adjustResize" />
+        <activity android:name=".ThemeStudioActivity"
+            android:enableOnBackInvokedCallback="true" android:exported="false"
+            android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize"
+            android:windowSoftInputMode="adjustResize" />
+        <activity android:name=".AiProvidersActivity"
+            android:enableOnBackInvokedCallback="true" android:exported="false" android:windowSoftInputMode="adjustResize" />
+        <activity android:name=".LocalAiActivity"
+            android:enableOnBackInvokedCallback="true" android:exported="false" />
+        <activity android:name=".OnboardingActivity" android:exported="false" android:windowSoftInputMode="adjustResize" />
+        <activity android:name=".DiagnosticsActivity"
+            android:enableOnBackInvokedCallback="true" android:exported="false" />
+        <activity android:name=".MemoryActivity"
+            android:enableOnBackInvokedCallback="true" android:exported="false" android:windowSoftInputMode="adjustResize" />
+        <!--
+          Orbit Vault, and one saved item.
+
+          Not exported, and deliberately so. The Vault is personal material the user chose to keep;
+          content reaches it through Orbit's own screens or through the one share doorway above,
+          which validates what arrives before anything is written. There is no second door.
+        -->
+        <activity android:name=".OrbitVaultActivity"
+            android:enableOnBackInvokedCallback="true" android:exported="false" android:windowSoftInputMode="adjustResize" />
+        <activity android:name=".OrbitVaultItemActivity"
+            android:enableOnBackInvokedCallback="true" android:exported="false" android:windowSoftInputMode="adjustResize" />
+        <activity android:name=".OrbitVaultPickerActivity"
+            android:enableOnBackInvokedCallback="true" android:exported="false" android:windowSoftInputMode="adjustResize" />
+        <activity android:name=".SmartVaultActivity"
+            android:enableOnBackInvokedCallback="true" android:exported="false" android:windowSoftInputMode="adjustResize" />
+        <!-- ML Kit (Smart Vault text recognition) would otherwise start itself on every launch
+             through this provider. It is removed so ML Kit initialises only when the user has
+             turned on "Read text in pictures" and a picture is actually being read. -->
+        <provider
+            android:name="com.google.mlkit.common.internal.MlKitInitProvider"
+            android:authorities="${applicationId}.mlkitinitprovider"
+            tools:node="remove" />
+        <activity android:name=".AppsActivity"
+            android:enableOnBackInvokedCallback="true" android:exported="false" android:windowSoftInputMode="adjustResize" />
+        <activity android:name=".AppProfileActivity"
+            android:enableOnBackInvokedCallback="true" android:exported="false" android:windowSoftInputMode="adjustResize" />
+        <activity android:name=".NotificationsActivity"
+            android:enableOnBackInvokedCallback="true" android:exported="false" android:windowSoftInputMode="adjustResize" />
+        <activity android:name=".CapabilitiesActivity"
+            android:enableOnBackInvokedCallback="true" android:exported="false" />
+        <activity android:name=".DeckActivity"
+            android:enableOnBackInvokedCallback="true" android:exported="false" android:windowSoftInputMode="adjustResize" />
+        <activity android:name=".RoutinesActivity"
+            android:enableOnBackInvokedCallback="true" android:exported="false" android:windowSoftInputMode="adjustResize" />
+        <activity android:name=".ExtensionsActivity"
+            android:enableOnBackInvokedCallback="true" android:exported="false" android:windowSoftInputMode="adjustResize" />
+        <activity android:name=".RoutineTemplatesActivity"
+            android:enableOnBackInvokedCallback="true" android:exported="false" android:windowSoftInputMode="adjustResize" />
+        <activity android:name=".CustomCommandsActivity"
+            android:enableOnBackInvokedCallback="true" android:exported="false" android:windowSoftInputMode="adjustResize" />
+        <activity android:name=".CustomCommandEditorActivity"
+            android:enableOnBackInvokedCallback="true" android:exported="false" android:windowSoftInputMode="adjustResize" />
+        <activity android:name=".RoutineEditorActivity"
+            android:enableOnBackInvokedCallback="true" android:exported="false" android:windowSoftInputMode="adjustResize" />
+        <activity android:name=".RoutineBuilderActivity"
+            android:enableOnBackInvokedCallback="true" android:exported="false" android:windowSoftInputMode="adjustResize" />
+        <activity android:name=".RoutineTriggersActivity"
+            android:enableOnBackInvokedCallback="true" android:exported="false" android:windowSoftInputMode="adjustResize" />
+        <activity android:name=".RoutineRunHistoryActivity"
+            android:enableOnBackInvokedCallback="true" android:exported="false" />
+        <activity android:name=".TimeTriggerEditorActivity"
+            android:enableOnBackInvokedCallback="true" android:exported="false" android:windowSoftInputMode="adjustResize" />
+        <activity android:name=".LocationTriggerEditorActivity"
+            android:enableOnBackInvokedCallback="true" android:exported="false" android:windowSoftInputMode="adjustResize" />
+        <activity android:name=".RemindersActivity"
+            android:enableOnBackInvokedCallback="true" android:exported="false" />
+        <activity android:name=".SavedPlacesActivity"
+            android:enableOnBackInvokedCallback="true" android:exported="false" android:windowSoftInputMode="adjustResize" />
+        <activity android:name=".UpdateActivity"
+            android:enableOnBackInvokedCallback="true" android:exported="false" />
+        <activity android:name=".WhatsNewActivity"
+            android:enableOnBackInvokedCallback="true" android:exported="false" />
+        <activity android:name=".RoadmapActivity"
+            android:enableOnBackInvokedCallback="true" android:exported="false" />
+        <!--
+          The hidden Orbit Launch Sequence. Deliberately without the back-callback opt-in: it is a
+          scene laid over Chats, not a page in Orbit's navigation, so its Back stays the plain one
+          that closes it immediately. Excluded from Recents so a decorative screen never becomes a
+          card the user has to dismiss.
+        -->
+        <activity android:name=".OrbitLaunchSequenceActivity"
+            android:exported="false" android:excludeFromRecents="true" />
+        <!--
+          The browser's "Return to Orbit" button after ChatGPT sign-in. Exported and BROWSABLE only
+          because a web page cannot otherwise hand the user back to an app; it reads nothing from the
+          link and only brings the screen that started the sign-in forward. See the class comment.
+        -->
+        <activity
+            android:name=".ChatGptSignInReturnActivity"
+            android:exported="true"
+            android:excludeFromRecents="true"
+            android:noHistory="true"
+            android:theme="@style/Theme.Orbit.Bridge">
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="orbit-assistant" android:host="chatgpt-signin" />
+            </intent-filter>
+        </activity>
+        <activity
+            android:name=".OrbitWidgetConfigureActivity"
+            android:exported="true"
+            android:windowSoftInputMode="adjustResize">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_CONFIGURE" />
+            </intent-filter>
+        </activity>
+        <activity
+            android:name=".OrbitWidgetActionActivity"
+            android:excludeFromRecents="true"
+            android:exported="false"
+            android:noHistory="true"
+            android:theme="@style/Theme.Orbit.Bridge" />
+
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="${applicationId}.fileprovider"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/file_paths" />
+        </provider>
+
+        <receiver android:name=".RoutineTriggerReceiver" android:exported="false" />
+        <receiver android:name=".LocationRoutineTriggerReceiver" android:exported="false" />
+        <receiver android:name=".ReminderReceiver" android:exported="false" />
+        <receiver android:name=".OrbitWidgetActionReceiver" android:exported="false" />
+        <!--
+          Where Android reports the result of an Orbit Local component uninstall.
+
+          Not exported: the package installer reaches it through a PendingIntent Orbit created
+          with an explicit component, which needs no exported surface. Nothing else can deliver
+          to it, and it acts only on a status naming com.orbit.assistant.local.
+        -->
+        <receiver android:name=".OrbitLocalUninstallReceiver" android:exported="false" />
+        <receiver android:name=".AskOrbitWidgetProvider" android:exported="false">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/ask_orbit_widget_info" />
+        </receiver>
+        <receiver android:name=".RunRoutineWidgetProvider" android:exported="false">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/run_routine_widget_info" />
+        </receiver>
+        <receiver android:name=".QuickActionsWidgetProvider" android:exported="false">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/quick_actions_widget_info" />
+        </receiver>
+        <receiver android:name=".RoutineTriggerRescheduleReceiver" android:exported="false">
+            <intent-filter>
+                <action android:name="android.intent.action.BOOT_COMPLETED" />
+                <action android:name="android.intent.action.TIME_SET" />
+                <action android:name="android.intent.action.TIMEZONE_CHANGED" />
+                <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
+                <action android:name="android.app.action.SCHEDULE_EXACT_ALARM_PERMISSION_STATE_CHANGED" />
+                <action android:name="android.location.MODE_CHANGED" />
+                <action android:name="android.location.PROVIDERS_CHANGED" />
+            </intent-filter>
+        </receiver>
+
+        <service
+            android:name=".OrbitVoiceInteractionService"
+            android:exported="true"
+            android:label="Orbit"
+            android:permission="android.permission.BIND_VOICE_INTERACTION">
+            <intent-filter>
+                <action android:name="android.service.voice.VoiceInteractionService" />
+            </intent-filter>
+            <meta-data
+                android:name="android.voice_interaction"
+                android:resource="@xml/voice_interaction_service" />
+        </service>
+
+        <service
+            android:name=".OrbitSessionService"
+            android:exported="true"
+            android:permission="android.permission.BIND_VOICE_INTERACTION" />
+
+        <service
+            android:name=".OrbitNotificationListenerService"
+            android:label="Orbit notification intelligence"
+            android:exported="true"
+            android:permission="android.permission.BIND_NOTIFICATION_LISTENER_SERVICE">
+            <intent-filter>
+                <action android:name="android.service.notification.NotificationListenerService" />
+            </intent-filter>
+        </service>
+
+        <service
+            android:name=".AskOrbitTileService"
+            android:exported="true"
+            android:icon="@drawable/ic_orbit_tile"
+            android:label="Orbit"
+            android:permission="android.permission.BIND_QUICK_SETTINGS_TILE">
+            <intent-filter>
+                <action android:name="android.service.quicksettings.action.QS_TILE" />
+            </intent-filter>
+        </service>
+
+        <service
+            android:name=".OrbitRoutineTileService"
+            android:exported="true"
+            android:icon="@drawable/ic_routine_tile"
+            android:label="Orbit Routine"
+            android:permission="android.permission.BIND_QUICK_SETTINGS_TILE">
+            <intent-filter>
+                <action android:name="android.service.quicksettings.action.QS_TILE" />
+            </intent-filter>
+        </service>
+
+    </application>
+</manifest>

@@ -1,0 +1,859 @@
+package com.orbit.assistant;
+
+import android.content.Context;
+import android.content.SharedPreferences;
+import android.graphics.Bitmap;
+
+import org.json.JSONArray;
+import org.json.JSONObject;
+
+import java.util.ArrayList;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Locale;
+import java.util.Set;
+import java.util.UUID;
+
+/**
+ * The durable local Vault: what the user saved, in the order they want to see it.
+ *
+ * <p>Text and metadata live in one private JSON document; pictures live as private files that
+ * {@link OrbitVaultMedia} owns and this store points at. The split is deliberate. Image bytes in a
+ * preferences file would be read and rewritten in full on every single save, and a personal
+ * collection would make that slower every week; a path is a few dozen characters and the picture is
+ * opened only when something actually draws it.
+ *
+ * <p>Everything here is local and offline. Nothing in this file contacts a provider, builds a
+ * prompt, touches Memory, or writes a conversation. Saving works with no account, no network, and
+ * no AI configured, which is the whole point of a Vault.
+ *
+ * <p>This document stays the only authoritative copy of the Vault. Smart Vault (v0.8.1.0-beta.1)
+ * keeps its index - recognised text, page text, meaning vectors - in a separate database that can
+ * be thrown away and rebuilt from here at any time. The store tells {@link SmartVault} when items
+ * are saved, changed or removed; it never waits for it.
+ */
+public final class OrbitVaultStore {
+
+    private static final String FILE = "orbit_vault";
+    private static final String KEY = "items_v1";
+    /** Where an unreadable document is set aside rather than overwritten. */
+    private static final String KEY_DAMAGED = "items_v1_unreadable";
+
+    /**
+     * How many items one device may keep.
+     *
+     * <p>A ceiling rather than a target. It bounds the JSON document that is read on every open and
+     * written on every save, and it bounds what a backup has to carry; a personal scrapbook that
+     * genuinely reaches it is far past the point where Beta 1's flat list is the right shape.
+     *
+     * <p><b>Reaching it never deletes anything.</b> Until v0.8.1.0-beta.1 a save at the ceiling
+     * quietly removed the oldest item to make room, which is Orbit destroying something the user
+     * chose to keep without telling them. A full Vault now refuses the new save, says why, and
+     * leaves every existing item exactly where it was. The ceiling itself stays until the Vault's
+     * storage moves off a single preferences document, because raising it there would make every
+     * save rewrite an ever larger file.
+     */
+    public static final int MAX_ITEMS = 300;
+    /** Where the Vault starts saying it is nearly full. */
+    public static final int WARN_AT = 270;
+    /**
+     * The most rows a stored document is read to, far above {@link #MAX_ITEMS}.
+     *
+     * <p>Only a defence against a hostile or corrupted file. A restored backup that genuinely holds
+     * more than the ceiling is read in full, so nothing in it is lost by the next write.
+     */
+    static final int MAX_READ_ITEMS = 5000;
+
+    /** What a refused save at the ceiling says, wherever it was attempted. */
+    public static final String FULL_MESSAGE =
+            "Your Vault is full (" + MAX_ITEMS + " items). Delete something to save more.";
+
+    /**
+     * Increases on every change to the stored document, so derived views - Smart Vault's index in
+     * particular - can tell cheaply whether what they built is still current.
+     */
+    private static volatile long generation = 1L;
+    /** The last document parsed, and what it parsed to, so typing in search does not re-parse. */
+    private static String cachedRaw = null;
+    private static List<OrbitVaultItem> cachedItems = null;
+
+    /** The order the Vault list is shown in. Newest first is the default. */
+    public enum Sort {
+        NEWEST("newest", "Newest first"),
+        OLDEST("oldest", "Oldest first");
+
+        /** Stored identity: never rename. */
+        public final String id;
+        public final String label;
+
+        Sort(String id, String label) {
+            this.id = id;
+            this.label = label;
+        }
+
+        public static Sort fromId(String value) {
+            for (Sort sort : values()) if (sort.id.equals(value)) return sort;
+            return NEWEST;
+        }
+    }
+
+    private OrbitVaultStore() {}
+
+    // ---- whether the Vault is switched on ------------------------------------------------------
+
+    /**
+     * Whether the user currently wants the Vault at all.
+     *
+     * <p>Read here rather than only at each surface, so "off" is one answer instead of a list of
+     * places that remembered to ask. Off stops new items being written and removes the Vault from
+     * the app; it deliberately does not stop anything already saved being read, because a backup
+     * still has to carry it and turning the feature back on has to return it exactly as it was.
+     */
+    public static boolean enabled(Context c) {
+        return c != null && Prefs.vaultEnabled(c);
+    }
+
+    // ---- reading ---------------------------------------------------------------------------------
+
+    /** Everything saved, newest first. */
+    public static synchronized List<OrbitVaultItem> list(Context c) {
+        return list(c, Sort.NEWEST);
+    }
+
+    public static synchronized List<OrbitVaultItem> list(Context c, Sort sort) {
+        List<OrbitVaultItem> items = readAll(c);
+        sort(items, sort);
+        return items;
+    }
+
+    /**
+     * Local search across everything the user can see.
+     *
+     * <p>Case-insensitive substring matching over the title, the body, the URL, and the source
+     * label, decided entirely on this device. No provider is asked, no embedding is computed, and
+     * nothing leaves the phone: a search on a plane returns the same answer as a search at home.
+     *
+     * <p>This is ordinary search, and it stays exactly this. Smart Vault's ranked search
+     * ({@link SmartVaultIndex}, v0.8.1.0-beta.1) is a separate, optional layer that always
+     * includes every item this method would return.
+     */
+    public static synchronized List<OrbitVaultItem> search(Context c, String query, Sort sort) {
+        String needle = query == null ? "" : query.trim().toLowerCase(Locale.US);
+        if (needle.isEmpty()) return list(c, sort);
+        List<OrbitVaultItem> matches = new ArrayList<>();
+        for (OrbitVaultItem item : readAll(c)) {
+            if (item.searchHaystack().contains(needle)) matches.add(item);
+        }
+        sort(matches, sort);
+        return matches;
+    }
+
+    /**
+     * Everything that survives one filter, in the order the user chose.
+     *
+     * <p>The single reading path the Vault screen uses, so the type chips, the source choice, the
+     * search field and the sort cannot disagree about what is on screen. All four compose: a
+     * narrowed Vault is one pass over the same list with one predicate, not four screens with four
+     * rules that drift apart the first time one of them is changed.
+     *
+     * <p>Local exactly as {@link #search} is. No provider is asked and nothing here reads an index,
+     * so a filtered Vault on a plane is the same filtered Vault as at home. When Smart Vault is on
+     * and its index is current, the Vault screen ranks a search with {@link SmartVaultIndex}
+     * instead, within the same type, source and topic selection.
+     */
+    public static synchronized List<OrbitVaultItem> browse(Context c, OrbitVaultFilter filter,
+                                                           Sort sort) {
+        OrbitVaultFilter applied = filter == null ? OrbitVaultFilter.NONE : filter;
+        List<OrbitVaultItem> matches = new ArrayList<>();
+        for (OrbitVaultItem item : readAll(c)) {
+            if (applied.matches(item)) matches.add(item);
+        }
+        sort(matches, sort);
+        return matches;
+    }
+
+    /**
+     * The canonical sources this device's Vault actually contains, in Orbit's own order.
+     *
+     * <p>Offered rather than the whole vocabulary, so the source filter never lists a door the
+     * user has not walked through. A source Orbit did not write is not counted, which is what
+     * {@link OrbitVaultSource#family} already guarantees.
+     */
+    public static synchronized List<String> sourcesPresent(Context c) {
+        return sourcesPresent(c, OrbitVaultFilter.Type.ALL);
+    }
+
+    /**
+     * The same question, asked about one kind of saved item.
+     *
+     * <p>The source selector is a way of narrowing what is on screen, so the useful answers are the
+     * ones that would actually narrow it. With Documents chosen and every saved page having come
+     * from Orbit Documents, a "Saved from" list offering Quick Capture and Shared is offering two
+     * choices that can only ever empty the screen, and a third that changes nothing.
+     *
+     * <p>This narrows the offer and nothing else. The filter's own matching is untouched, so an
+     * item's stored source still decides whether it survives a filter, and a source the user
+     * already chose is still valid whatever type is in force. Nothing is renamed and nothing is
+     * migrated - this is a question about the collection, asked at the moment the menu opens.
+     */
+    public static synchronized List<String> sourcesPresent(Context c, OrbitVaultFilter.Type type) {
+        OrbitVaultFilter.Type applied = type == null ? OrbitVaultFilter.Type.ALL : type;
+        Set<String> found = new HashSet<>();
+        for (OrbitVaultItem item : readAll(c)) {
+            if (!applied.matches(item)) continue;
+            String family = OrbitVaultSource.family(item.source);
+            if (!family.isEmpty()) found.add(family);
+        }
+        List<String> ordered = new ArrayList<>();
+        for (String known : OrbitVaultSource.FILTERABLE) {
+            if (found.contains(known)) ordered.add(known);
+        }
+        return ordered;
+    }
+
+    public static synchronized OrbitVaultItem get(Context c, String id) {
+        if (id == null || id.trim().isEmpty()) return null;
+        for (OrbitVaultItem item : readAll(c)) if (id.equals(item.id)) return item;
+        return null;
+    }
+
+    public static synchronized int count(Context c) {
+        return readAll(c).size();
+    }
+
+    /** Whether a new save would be refused because the Vault is at its ceiling. */
+    public static synchronized boolean isFull(Context c) {
+        return readAll(c).size() >= MAX_ITEMS;
+    }
+
+    /** Whether the Vault should start warning that it is nearly full. */
+    public static synchronized boolean isNearlyFull(Context c) {
+        return readAll(c).size() >= WARN_AT;
+    }
+
+    /**
+     * What a surface should say when a save it attempted did not happen.
+     *
+     * <p>A full Vault is the one refusal the user can act on, so it is named plainly; every other
+     * failure keeps the surface's own wording.
+     */
+    public static String saveFailureMessage(Context c, String fallback) {
+        return c != null && enabled(c) && isFull(c) ? FULL_MESSAGE : fallback;
+    }
+
+    /** "Saved to Vault", with a nearly-full warning appended when there is one to give. */
+    public static String savedMessage(Context c) {
+        if (c == null) return "Saved to Vault";
+        int total = count(c);
+        if (total >= MAX_ITEMS) return "Saved to Vault. Your Vault is now full.";
+        if (total >= WARN_AT) {
+            return "Saved to Vault. " + (MAX_ITEMS - total) + " spaces left.";
+        }
+        return "Saved to Vault";
+    }
+
+    /** The counter {@link #generation} exposes, for derived views. */
+    static long generation() {
+        return generation;
+    }
+
+    /**
+     * Every topic the Vault uses, most used first, with how many items answer to each.
+     *
+     * <p>Kept and suggested topics both count, because both narrow the list; a topic the user
+     * rejected on an item does not count for that item.
+     */
+    public static synchronized java.util.LinkedHashMap<String, Integer> topicsInUse(Context c) {
+        java.util.Map<String, Integer> counts = new java.util.HashMap<>();
+        for (OrbitVaultItem item : readAll(c)) {
+            for (String topic : item.allTopics()) counts.merge(topic, 1, Integer::sum);
+        }
+        List<java.util.Map.Entry<String, Integer>> entries = new ArrayList<>(counts.entrySet());
+        entries.sort((a, b) -> {
+            int byCount = Integer.compare(b.getValue(), a.getValue());
+            return byCount != 0 ? byCount : a.getKey().compareTo(b.getKey());
+        });
+        java.util.LinkedHashMap<String, Integer> out = new java.util.LinkedHashMap<>();
+        for (java.util.Map.Entry<String, Integer> entry : entries) {
+            out.put(entry.getKey(), entry.getValue());
+        }
+        return out;
+    }
+
+    // ---- saving ----------------------------------------------------------------------------------
+
+    /**
+     * Saves a note, or the address it turns out to be.
+     *
+     * <p>Classification happens here rather than at each call site, so text typed into Quick
+     * Capture, text pasted from the clipboard, and text shared from another app all become the same
+     * kind of item when they are the same thing. A paragraph is a note; one bare http or https
+     * address is a link.
+     */
+    public static synchronized OrbitVaultItem saveText(Context c, String title, String body,
+                                                       String source) {
+        return saveText(c, title, body, source, "");
+    }
+
+    public static synchronized OrbitVaultItem saveText(Context c, String title, String body,
+                                                       String source, String note) {
+        String text = body == null ? "" : body.trim();
+        if (text.isEmpty()) return null;
+        String link = OrbitVaultItem.singleLinkOrEmpty(text);
+        return insert(c, link.isEmpty() ? OrbitVaultItem.TYPE_TEXT : OrbitVaultItem.TYPE_LINK,
+                title, link.isEmpty() ? text : link, source, note, "");
+    }
+
+    /** Saves an address the caller has already decided is a link. */
+    public static synchronized OrbitVaultItem saveLink(Context c, String title, String url,
+                                                       String source) {
+        return saveLink(c, title, url, source, "");
+    }
+
+    public static synchronized OrbitVaultItem saveLink(Context c, String title, String url,
+                                                       String source, String note) {
+        String link = OrbitVaultItem.singleLinkOrEmpty(url);
+        if (link.isEmpty()) return null;
+        return insert(c, OrbitVaultItem.TYPE_LINK, title, link, source, note, "");
+    }
+
+    /**
+     * Copies a picture into Orbit's own storage and saves an item pointing at the copy.
+     *
+     * <p>The copy is written first. If it fails, nothing is added at all rather than an item
+     * pointing at a picture that does not exist.
+     */
+    public static synchronized OrbitVaultItem saveImage(Context c, Bitmap bitmap, String title,
+                                                        String source) {
+        return saveImage(c, bitmap, title, source, "");
+    }
+
+    public static synchronized OrbitVaultItem saveImage(Context c, Bitmap bitmap, String title,
+                                                        String source, String note) {
+        return saveImage(c, bitmap, title, source, note, "");
+    }
+
+    /**
+     * Saves a picture together with text Orbit captured alongside it.
+     *
+     * <p>Used by Screen Selection when the whole screen is kept, so the screenshot can later be
+     * found by the words that were on it. The capture is refused before any file is written when
+     * the Vault is full, so a full Vault never leaves an orphaned picture behind.
+     */
+    public static synchronized OrbitVaultItem saveImage(Context c, Bitmap bitmap, String title,
+                                                        String source, String note,
+                                                        String capturedText) {
+        if (bitmap == null || !enabled(c) || isFull(c)) return null;
+        String path = OrbitVaultMedia.save(c, bitmap);
+        if (path.isEmpty()) return null;
+        long now = System.currentTimeMillis();
+        OrbitVaultItem saved = insert(c, new OrbitVaultItem(UUID.randomUUID().toString(),
+                OrbitVaultItem.TYPE_IMAGE, title, "", source, note, path, "", 0, 0, false, "",
+                capturedText, null, null, now, now));
+        if (saved == null) OrbitVaultMedia.delete(c, path);
+        return saved;
+    }
+
+    /**
+     * Keeps a sourced picture Orbit showed inside an answer.
+     *
+     * <p>An ordinary {@link OrbitVaultItem#TYPE_IMAGE}, deliberately. Type answers "what is this",
+     * and this is a picture; where it came from is a different question, answered by the canonical
+     * {@link OrbitVaultSource#RICH_ANSWER} source and by the page address kept beside it. Inventing
+     * a rich-answer type would mean a second kind of image that every filter, every picker and
+     * every backup path then had to learn about, for a distinction that is provenance rather than
+     * content.
+     *
+     * <p>The bitmap is copied into the Vault's own storage before the row is written. What Orbit
+     * showed in the answer lives in a bounded cache that is trimmed by age and size, so an item
+     * pointing at a cache file would be a thumbnail that worked until the cache turned over. A
+     * saved picture is the Vault's, and deleting the item deletes it.
+     */
+    public static synchronized OrbitVaultItem saveRichAnswerImage(Context c, Bitmap bitmap,
+                                                                  RichAnswerImage image) {
+        if (c == null || bitmap == null || image == null || !enabled(c) || isFull(c)) return null;
+        String path = OrbitVaultMedia.save(c, bitmap);
+        if (path.isEmpty()) return null;
+        long now = System.currentTimeMillis();
+        OrbitVaultItem item = new OrbitVaultItem(UUID.randomUUID().toString(),
+                OrbitVaultItem.TYPE_IMAGE, image.vaultTitle(), "",
+                OrbitVaultSource.RICH_ANSWER, "", path, "", 0, 0, false,
+                // A generated picture has no page, and RichAnswerImage already guarantees its
+                // source is empty, so this carries provenance without ever inventing any.
+                image.sourceUrl, now, now);
+        OrbitVaultItem saved = insert(c, item);
+        if (saved == null) OrbitVaultMedia.delete(c, path);
+        return saved;
+    }
+
+    /**
+     * Saves exactly the reply the user was looking at.
+     *
+     * <p>Only the visible text: no hidden provider metadata, no reasoning, no tool internals, no
+     * request identity, no attached screen context, and nothing from the rest of the conversation.
+     * A conversation stays a conversation; this is one answer the user picked out of it.
+     *
+     * <p>Two deliberate saves of the same reply produce two items. Saving is an act, not a state,
+     * and quietly refusing the second would leave the user pressing a control that appears to do
+     * nothing.
+     */
+    public static synchronized OrbitVaultItem saveOrbitReply(Context c, String visibleReply) {
+        return saveOrbitReply(c, visibleReply, "");
+    }
+
+    /**
+     * The same, keeping the web page the answer cited as the item's source page (0.8.3.0+). The
+     * address is provenance the answer already showed the user, never anything hidden, and only an
+     * ordinary web address is kept.
+     */
+    public static synchronized OrbitVaultItem saveOrbitReply(Context c, String visibleReply,
+                                                             String sourceUrl) {
+        String text = visibleReply == null ? "" : visibleReply.trim();
+        if (text.isEmpty()) return null;
+        String url = sourceUrl == null ? "" : sourceUrl.trim();
+        if (url.isEmpty()) {
+            return insert(c, OrbitVaultItem.TYPE_ORBIT_REPLY, "", text,
+                    OrbitVaultSource.ORBIT_REPLY, "", "");
+        }
+        if (c == null || !enabled(c)) return null;
+        long now = System.currentTimeMillis();
+        return insert(c, new OrbitVaultItem(UUID.randomUUID().toString(),
+                OrbitVaultItem.TYPE_ORBIT_REPLY, "", text, OrbitVaultSource.ORBIT_REPLY, "", "",
+                "", 0, 0, false, url, now, now));
+    }
+
+    /**
+     * Keeps one page of a document the user was reading, and only that page.
+     *
+     * <p>Self-contained on purpose. What is stored is the page's extracted text, Orbit's own copy of
+     * the rendering, the document's display name and where the page sat inside it - never a path to
+     * the original file and never the rest of the document. The user asked to keep a page, so a
+     * page is what is kept; duplicating a four hundred page book into the Vault to preserve one of
+     * them would be a different and much worse answer to the same request.
+     *
+     * <p>The rendering is optional. A page that would not render is still worth keeping when its
+     * text came out, and a page with neither is refused rather than saved as an empty row.
+     */
+    public static synchronized OrbitVaultItem saveDocumentPage(Context c, String documentName,
+                                                               int pageIndex, int pageCount,
+                                                               String pageText, Bitmap rendering,
+                                                               String note) {
+        if (c == null || !enabled(c) || isFull(c)) return null;
+        String text = pageText == null ? "" : pageText.trim();
+        if (text.isEmpty() && rendering == null) return null;
+        // The picture is written before the row that names it, exactly as a saved photo is, so a
+        // failure here leaves nothing behind rather than an item pointing at a file never written.
+        String path = rendering == null ? "" : OrbitVaultMedia.save(c, rendering);
+        if (path.isEmpty() && text.isEmpty()) return null;
+        long now = System.currentTimeMillis();
+        OrbitVaultItem item = new OrbitVaultItem(UUID.randomUUID().toString(),
+                OrbitVaultItem.TYPE_DOCUMENT_PAGE, "", text,
+                OrbitVaultSource.documentPage(pageIndex + 1), note, path,
+                documentName, pageIndex, pageCount, now, now);
+        OrbitVaultItem saved = insert(c, item);
+        if (saved == null && !path.isEmpty()) OrbitVaultMedia.delete(c, path);
+        return saved;
+    }
+
+    private static OrbitVaultItem insert(Context c, String type, String title, String body,
+                                         String source, String note, String mediaPath) {
+        if (c == null || !enabled(c)) return null;
+        long now = System.currentTimeMillis();
+        return insert(c, new OrbitVaultItem(UUID.randomUUID().toString(), type, title, body,
+                source, note, mediaPath, now, now));
+    }
+
+    /**
+     * The one gate every new item passes through, whatever route it arrived by.
+     *
+     * <p>The surfaces that offer saving are hidden while the Vault is off, but hiding a control is
+     * a matter of drawing and this is a matter of storage: a route that is added later, or one
+     * nobody remembered, still cannot write into a Vault the user has switched off.
+     */
+    private static OrbitVaultItem insert(Context c, OrbitVaultItem item) {
+        if (c == null || !enabled(c) || !OrbitVaultItem.isStorable(item)) return null;
+        List<OrbitVaultItem> all = readAll(c);
+        // A full Vault refuses the new item and keeps every existing one. Before v0.8.1.0-beta.1
+        // the oldest item was silently deleted here to make room; nothing is ever dropped now.
+        if (all.size() >= MAX_ITEMS) return null;
+        all.add(0, item);
+        writeAll(c, all);
+        SmartVault.onSaved(c, item);
+        return item;
+    }
+
+    // ---- editing ---------------------------------------------------------------------------------
+
+    /** Renames one item. Available for every kind, including a saved answer. */
+    public static synchronized boolean updateTitle(Context c, String id, String title) {
+        OrbitVaultItem existing = get(c, id);
+        if (existing == null) return false;
+        return replace(c, existing.copyWith(title, existing.body, existing.note,
+                System.currentTimeMillis()));
+    }
+
+    /**
+     * Writes, rewrites, or removes the user's own note about one item.
+     *
+     * <p>Available for every kind, including the ones whose body is a record. A saved answer's
+     * words are Orbit's and stay exactly as they were; the note beside them is the user's and is
+     * theirs to change, which is the whole reason it is a separate field.
+     *
+     * <p>An empty note is a removal rather than a failure. "Clear this" and "save nothing" are the
+     * same intention, and making the user delete an item to be rid of one sentence would be absurd.
+     * The body, the title, the type, the media and the created time are all untouched either way.
+     */
+    public static synchronized boolean updateNote(Context c, String id, String note) {
+        OrbitVaultItem existing = get(c, id);
+        if (existing == null) return false;
+        return replaceContent(c, existing.copyWith(existing.title, existing.body, note,
+                System.currentTimeMillis()));
+    }
+
+    /**
+     * Rewrites a note the user wrote.
+     *
+     * <p>Refused for anything whose body is a record rather than a draft. A link's address and a
+     * saved answer's text are what they are; changing either would leave the user with something
+     * that still calls itself a link, or a quotation, and is neither.
+     */
+    public static synchronized boolean updateText(Context c, String id, String title, String body) {
+        OrbitVaultItem existing = get(c, id);
+        if (existing == null || !existing.bodyIsEditable()) return false;
+        String text = body == null ? "" : body.trim();
+        if (text.isEmpty()) return false;
+        return replaceContent(c, existing.copyWith(title, text, existing.note,
+                System.currentTimeMillis()));
+    }
+
+    /**
+     * Pins or unpins one item, and changes nothing else about it.
+     *
+     * <p>Deliberately not an edit. The title, the body, the note, the media, the source, the page
+     * metadata and both timestamps are all carried across exactly as they were, so a pin cannot
+     * reorder a Newest-first Vault, cannot make an item claim to have been edited, and cannot turn
+     * a saved answer into something that is no longer a faithful record of what Orbit said.
+     *
+     * <p>Works whatever the user is currently filtering by and whatever is currently on screen: a
+     * pin is a property of the item, not of the view somebody happened to pin it from.
+     */
+    public static synchronized boolean setPinned(Context c, String id, boolean pinned) {
+        OrbitVaultItem existing = get(c, id);
+        if (existing == null || existing.pinned == pinned) return existing != null;
+        return replace(c, existing.copyPinned(pinned));
+    }
+
+    /** How many items the user has pinned. */
+    public static synchronized int pinnedCount(Context c) {
+        int total = 0;
+        for (OrbitVaultItem item : readAll(c)) if (item.pinned) total++;
+        return total;
+    }
+
+    /**
+     * A replacement that changed what was saved, so Smart Vault re-reads the item.
+     */
+    private static boolean replaceContent(Context c, OrbitVaultItem updated) {
+        boolean done = replace(c, updated);
+        if (done) SmartVault.onChanged(c, updated);
+        return done;
+    }
+
+    private static boolean replace(Context c, OrbitVaultItem updated) {
+        if (!OrbitVaultItem.isStorable(updated)) return false;
+        List<OrbitVaultItem> all = readAll(c);
+        for (int i = 0; i < all.size(); i++) {
+            if (!all.get(i).id.equals(updated.id)) continue;
+            all.set(i, updated);
+            writeAll(c, all);
+            return true;
+        }
+        return false;
+    }
+
+    // ---- Smart Vault -------------------------------------------------------------------------------
+
+    /** The outcome of writing a background result onto an item. */
+    enum Apply { APPLIED, GONE, CHANGED }
+
+    /**
+     * Writes Orbit's suggestions onto an item, only if it is still exactly what they describe.
+     *
+     * <p>The one door background enrichment has into the Vault, and a compare-and-set rather than a
+     * write. It runs under the store's lock, so between checking and writing no delete or edit can
+     * slip in: an item deleted while its request was in flight stays deleted ({@link Apply#GONE}),
+     * and an item edited meanwhile keeps the edit and gets no stale summary
+     * ({@link Apply#CHANGED}). Rejections the user made while the request ran are carried over, and
+     * no field the user owns is touched - {@link OrbitVaultItem#modifiedAt} included.
+     */
+    static synchronized Apply applySuggestions(Context c, String id, String expectedFingerprint,
+                                               VaultSuggestions fresh) {
+        OrbitVaultItem existing = get(c, id);
+        if (existing == null) return Apply.GONE;
+        if (!existing.contentFingerprint().equals(expectedFingerprint)) return Apply.CHANGED;
+        List<String> rejected = existing.suggestions == null
+                ? new ArrayList<>() : new ArrayList<>(existing.suggestions.rejected);
+        VaultSuggestions merged = new VaultSuggestions(fresh.title, fresh.summary, fresh.topics,
+                rejected, expectedFingerprint, fresh.generatedAt, fresh.provider);
+        replace(c, existing.copySmart(existing.capturedText, existing.topics, merged,
+                existing.modifiedAt));
+        return Apply.APPLIED;
+    }
+
+    /**
+     * Replaces the suggestions on an item because the user reviewed them: kept a title, removed a
+     * summary, rejected a topic, or cleared everything. Not an edit of the saved content.
+     */
+    static synchronized boolean updateSuggestions(Context c, String id, VaultSuggestions next) {
+        OrbitVaultItem existing = get(c, id);
+        if (existing == null) return false;
+        return replace(c, existing.copySmart(existing.capturedText, existing.topics, next,
+                existing.modifiedAt));
+    }
+
+    /**
+     * Makes Orbit's suggested title the user's own.
+     *
+     * <p>From here on it is a title the user chose, exactly as if they had typed it, and nothing
+     * Orbit suggests later can replace it.
+     */
+    public static synchronized boolean keepSuggestedTitle(Context c, String id) {
+        OrbitVaultItem existing = get(c, id);
+        if (existing == null || !existing.titleIsSuggested()) return false;
+        OrbitVaultItem renamed = existing.copyWith(existing.suggestions.title, existing.body,
+                existing.note, System.currentTimeMillis());
+        return replace(c, renamed.copySmart(renamed.capturedText, renamed.topics,
+                existing.suggestions.withoutTitle(), renamed.modifiedAt));
+    }
+
+    /**
+     * Sets the topics the user keeps on an item.
+     *
+     * <p>Organisation rather than an edit, exactly as pinning is, so the item's edited date does
+     * not move. A topic the user keeps also leaves the suggestions, so it is shown once.
+     */
+    public static synchronized boolean setTopics(Context c, String id, List<String> topics) {
+        OrbitVaultItem existing = get(c, id);
+        if (existing == null) return false;
+        List<String> clean = VaultTopics.clean(topics);
+        VaultSuggestions next = existing.suggestions;
+        if (next != null) for (String topic : clean) next = next.without(topic);
+        return replace(c, existing.copySmart(existing.capturedText, clean, next,
+                existing.modifiedAt));
+    }
+
+    /** Removes the screen text captured with an item, which is an edit of what was saved. */
+    public static synchronized boolean clearCapturedText(Context c, String id) {
+        OrbitVaultItem existing = get(c, id);
+        if (existing == null || !existing.hasCapturedText()) return false;
+        return replaceContent(c, existing.copySmart("", existing.topics, existing.suggestions,
+                System.currentTimeMillis()));
+    }
+
+    /**
+     * Removes every suggestion Orbit wrote, across the whole Vault, and nothing the user wrote.
+     *
+     * <p>Titles, notes, bodies and topics the user kept are untouched. Rejections are cleared too,
+     * because this is the "forget everything Smart Vault said" control.
+     */
+    static synchronized int clearAllSuggestions(Context c) {
+        List<OrbitVaultItem> all = readAll(c);
+        int changed = 0;
+        for (int i = 0; i < all.size(); i++) {
+            OrbitVaultItem item = all.get(i);
+            if (item.suggestions == null) continue;
+            all.set(i, item.copySmart(item.capturedText, item.topics, null, item.modifiedAt));
+            changed++;
+        }
+        if (changed > 0) writeAll(c, all);
+        return changed;
+    }
+
+    // ---- deletion --------------------------------------------------------------------------------
+
+    /**
+     * Removes one item, and the picture it owned.
+     *
+     * <p>There is no Trash in Beta 1, so the confirmation is the safeguard and the removal is real.
+     * A picture is deleted only when no remaining item still refers to it and only when it is
+     * genuinely inside the Vault's own directory: deleting a note can never reach a file, and
+     * deleting an image can never reach a conversation's attachment.
+     */
+    public static synchronized boolean delete(Context c, String id) {
+        if (c == null || id == null || id.trim().isEmpty()) return false;
+        List<OrbitVaultItem> all = readAll(c);
+        OrbitVaultItem removed = null;
+        for (int i = 0; i < all.size(); i++) {
+            if (!all.get(i).id.equals(id)) continue;
+            removed = all.remove(i);
+            break;
+        }
+        if (removed == null) return false;
+        writeAll(c, all);
+        SmartVault.onDeleted(c, removed.id);
+        if (!removed.mediaPath.isEmpty() && !stillReferenced(all, removed.mediaPath)) {
+            OrbitVaultMedia.delete(c, removed.mediaPath);
+        }
+        return true;
+    }
+
+    private static boolean stillReferenced(List<OrbitVaultItem> remaining, String path) {
+        for (OrbitVaultItem item : remaining) if (path.equals(item.mediaPath)) return true;
+        return false;
+    }
+
+    /**
+     * Erases everything the Vault holds on this device, and nothing else.
+     *
+     * <p>Deliberately a different act from switching the Vault off. Off is a preference and is
+     * reversible in one tap; this is not, so it exists as its own control, behind its own
+     * confirmation, and it works whether the Vault is currently on or off - somebody who turned it
+     * off in order to stop using it should not have to turn it back on to be rid of the contents.
+     *
+     * <p>What it reaches is exactly the Vault: the item document, and the picture files inside the
+     * Vault's own media directory. Conversations, Memory, reminders, Routines, providers, themes,
+     * every other preference and any backup file the user already exported are untouched, because
+     * nothing here can name them. The metadata is committed empty first, so a process that dies
+     * mid-way leaves an empty Vault and some orphaned files rather than rows pointing at pictures
+     * that are gone.
+     */
+    public static synchronized int deleteAllData(Context c) {
+        if (c == null) return 0;
+        int removed = readAll(c).size();
+        prefs(c).edit().putString(KEY, "[]").remove(KEY_DAMAGED).commit();
+        invalidate();
+        SmartVault.onVaultCleared(c);
+        OrbitVaultMedia.pruneOrphans(c, new HashSet<>());
+        return removed;
+    }
+
+    // ---- backup ----------------------------------------------------------------------------------
+
+    /** The stored document exactly as it is on disk, for {@link OrbitBackupManager}. */
+    static synchronized String backupJson(Context c) {
+        return prefs(c).getString(KEY, "[]");
+    }
+
+    /**
+     * Replaces the Vault with a validated backup document.
+     *
+     * <p>Committed rather than applied, so a restore that reports success has genuinely reached the
+     * disk before the rest of the restore is allowed to depend on it.
+     *
+     * <p>It deliberately deletes nothing. A restore that replaces this collection may still be
+     * rolled back a moment later, and the pictures the previous collection owned are exactly what
+     * that rollback needs; removing them here would make the rollback restore rows pointing at
+     * files this method had just destroyed. Clearing up is {@link #pruneUnreferencedMedia}'s job,
+     * and it runs only once the whole restore has committed.
+     */
+    static synchronized boolean restoreBackupJson(Context c, String raw) {
+        if (c == null) return false;
+        boolean done = prefs(c).edit().putString(KEY, raw == null ? "[]" : raw).commit();
+        invalidate();
+        return done;
+    }
+
+    /**
+     * Removes Vault pictures no saved item refers to any more.
+     *
+     * <p>Called after a restore has fully committed, when the previous collection's files really
+     * are unreachable. Ordinary use never needs it: deleting an item already deletes the picture it
+     * owned.
+     */
+    static synchronized int pruneUnreferencedMedia(Context c) {
+        if (c == null) return 0;
+        Set<String> keep = new HashSet<>();
+        for (OrbitVaultItem item : readAll(c)) {
+            if (!item.mediaPath.isEmpty()) keep.add(item.mediaPath);
+        }
+        return OrbitVaultMedia.pruneOrphans(c, keep);
+    }
+
+    // ---- storage ---------------------------------------------------------------------------------
+
+    /**
+     * Everything on disk that is still readable.
+     *
+     * <p>A row that will not parse is skipped rather than fatal, and a document that will not parse
+     * at all reads as an empty Vault. Losing one damaged row is recoverable; refusing to open the
+     * screen is not.
+     */
+    private static List<OrbitVaultItem> readAll(Context c) {
+        List<OrbitVaultItem> out = new ArrayList<>();
+        if (c == null) return out;
+        String raw = prefs(c).getString(KEY, "[]");
+        // Items are immutable, so the parsed list for an unchanged document can be handed out
+        // again as a fresh copy. Typing in the Vault's search no longer re-parses the whole
+        // document on every keystroke.
+        if (cachedItems != null && raw != null && raw.equals(cachedRaw)) {
+            return new ArrayList<>(cachedItems);
+        }
+        try {
+            JSONArray stored = new JSONArray(raw);
+            Set<String> seen = new HashSet<>();
+            for (int i = 0; i < stored.length(); i++) {
+                OrbitVaultItem item = OrbitVaultItem.fromJson(stored.optJSONObject(i));
+                if (item == null || !seen.add(item.id)) continue;
+                out.add(item);
+                // No longer capped at the ceiling: a restored backup holding more than it must be
+                // read in full, or the next save would silently drop whatever was past it.
+                if (out.size() >= MAX_READ_ITEMS) break;
+            }
+        } catch (Exception ignored) {
+            // An unreadable document still reads as an empty Vault so the screen opens, but the
+            // original is set aside first, so the next save cannot overwrite the only copy.
+            preserveDamaged(c, raw);
+            return new ArrayList<>();
+        }
+        cachedRaw = raw;
+        cachedItems = java.util.Collections.unmodifiableList(new ArrayList<>(out));
+        return out;
+    }
+
+    /** Keeps an unreadable Vault document under its own key, once, for recovery. */
+    private static void preserveDamaged(Context c, String raw) {
+        if (raw == null || raw.trim().isEmpty() || "[]".equals(raw.trim())) return;
+        SharedPreferences p = prefs(c);
+        if (p.contains(KEY_DAMAGED)) return;
+        p.edit().putString(KEY_DAMAGED, raw).apply();
+    }
+
+    /** Drops the parsed copy, after anything that wrote the document outside {@link #writeAll}. */
+    private static void invalidate() {
+        cachedRaw = null;
+        cachedItems = null;
+        generation++;
+    }
+
+    private static void writeAll(Context c, List<OrbitVaultItem> items) {
+        JSONArray out = new JSONArray();
+        for (OrbitVaultItem item : items) {
+            try {
+                if (OrbitVaultItem.isStorable(item)) out.put(item.toJson());
+            } catch (Exception ignored) {
+                // One unwritable row is dropped; the rest of the Vault is still saved.
+            }
+        }
+        String raw = out.toString();
+        prefs(c).edit().putString(KEY, raw).apply();
+        cachedRaw = null;
+        cachedItems = null;
+        generation++;
+    }
+
+    private static void sort(List<OrbitVaultItem> items, Sort order) {
+        Sort chosen = order == null ? Sort.NEWEST : order;
+        items.sort((a, b) -> {
+            int byTime = chosen == Sort.OLDEST
+                    ? Long.compare(a.createdAt, b.createdAt)
+                    : Long.compare(b.createdAt, a.createdAt);
+            // Two things saved in the same millisecond still need one stable order, or the list
+            // would reshuffle itself between two identical reads.
+            return byTime != 0 ? byTime : a.id.compareTo(b.id);
+        });
+    }
+
+    static SharedPreferences prefs(Context c) {
+        return c.getSharedPreferences(FILE, Context.MODE_PRIVATE);
+    }
+}

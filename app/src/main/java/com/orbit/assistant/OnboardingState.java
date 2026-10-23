@@ -1,0 +1,124 @@
+package com.orbit.assistant;
+
+import android.content.Context;
+import android.content.pm.PackageInfo;
+
+import java.util.Map;
+
+/** Versioned onboarding state plus the one-time legacy-install migration gate. */
+public final class OnboardingState {
+    public static final int CURRENT_VERSION = 1;
+    private static final String COMPLETED_VERSION = "onboarding_version_completed";
+    private static final String CURRENT_STEP = "onboarding_current_step";
+    private static final String STARTED_VERSION = "onboarding_started_version";
+    private static final String ASK_TILE_CONFIRMED = "onboarding_ask_tile_confirmed";
+    private static final String STARTER_ROUTINE_ID = "onboarding_starter_routine_id";
+
+    private OnboardingState() {}
+
+    public static boolean shouldLaunchAutomatically(Context c) {
+        int completed = completedVersion(c);
+        if (completed >= CURRENT_VERSION) return false;
+        if (Prefs.get(c).getInt(STARTED_VERSION, 0) == CURRENT_VERSION) return true;
+        // A prior explicit onboarding completion is not a legacy-install ambiguity.
+        // Future materially new onboarding versions should be allowed to launch.
+        if (completed > 0) {
+            Prefs.get(c).edit().putInt(STARTED_VERSION, CURRENT_VERSION)
+                    .putInt(CURRENT_STEP, 0).commit();
+            return true;
+        }
+        if (looksLikeLegacyInstall(c)) {
+            markCompleted(c);
+            return false;
+        }
+        Prefs.get(c).edit().putInt(STARTED_VERSION, CURRENT_VERSION).commit();
+        return true;
+    }
+
+    public static int completedVersion(Context c) {
+        return Prefs.get(c).getInt(COMPLETED_VERSION, 0);
+    }
+
+    public static void markCompleted(Context c) {
+        Prefs.get(c).edit()
+                .putInt(COMPLETED_VERSION, CURRENT_VERSION)
+                .remove(CURRENT_STEP)
+                .remove(STARTED_VERSION)
+                .commit();
+    }
+
+    public static int currentStep(Context c) {
+        return Math.max(0, Math.min(7, Prefs.get(c).getInt(CURRENT_STEP, 0)));
+    }
+
+    public static void setCurrentStep(Context c, int step) {
+        Prefs.get(c).edit().putInt(CURRENT_STEP, Math.max(0, Math.min(7, step))).commit();
+    }
+
+    public static boolean askTileConfirmed(Context c) {
+        return Prefs.get(c).getBoolean(ASK_TILE_CONFIRMED, false);
+    }
+
+    public static void setAskTileConfirmed(Context c, boolean confirmed) {
+        Prefs.get(c).edit().putBoolean(ASK_TILE_CONFIRMED, confirmed).apply();
+    }
+
+    public static String starterRoutineId(Context c) {
+        return Prefs.get(c).getString(STARTER_ROUTINE_ID, "").trim();
+    }
+
+    public static void setStarterRoutineId(Context c, String routineId) {
+        Prefs.get(c).edit().putString(STARTER_ROUTINE_ID,
+                routineId == null ? "" : routineId.trim()).apply();
+    }
+
+    /** True when this APK updated an earlier Orbit install rather than being freshly installed. */
+    static boolean packageWasUpdated(Context c) {
+        try {
+            PackageInfo info = c.getPackageManager().getPackageInfo(c.getPackageName(), 0);
+            return info.lastUpdateTime - info.firstInstallTime > 5_000L;
+        } catch (Exception ignored) {
+            return false;
+        }
+    }
+
+    private static boolean looksLikeLegacyInstall(Context c) {
+        // A real package update is authoritative even if the user kept Orbit's defaults.
+        if (packageWasUpdated(c)) return true;
+
+        if (ChatGptAuth.isSignedIn(c)) return true;
+        if (!ConversationStore.list(c).isEmpty() || !RoutineStore.list(c).isEmpty() ||
+                !MemoryStore.list(c).isEmpty() || !ReminderStore.list(c).isEmpty() ||
+                !SavedPlaceStore.list(c).isEmpty() || !AppProfileStore.list(c).isEmpty() ||
+                !CustomCommandStore.list(c).isEmpty()) return true;
+
+        for (Map.Entry<String, ?> entry : Prefs.get(c).getAll().entrySet()) {
+            String key = entry.getKey();
+            if (COMPLETED_VERSION.equals(key) || CURRENT_STEP.equals(key) ||
+                    STARTED_VERSION.equals(key) || ASK_TILE_CONFIRMED.equals(key) ||
+                    STARTER_ROUTINE_ID.equals(key)) continue;
+            if (isSelfInitialized(key, entry.getValue())) continue;
+            return true;
+        }
+        return false;
+    }
+
+    /**
+     * A preference Orbit writes by itself on a brand-new install, holding the value it writes.
+     *
+     * <p>Applying the theme, which Chats does before it asks this class anything, stamps the theme
+     * schema and names the untouched appearance "Orbit Default". Counting those as evidence of an
+     * earlier install made every fresh install skip onboarding. Only the exact fresh values are
+     * ignored: a theme the user actually chose or named still identifies an existing install.
+     */
+    private static boolean isSelfInitialized(String key, Object value) {
+        if (Prefs.THEME_SCHEMA.equals(key)) return true;
+        OrbitTheme fresh = OrbitTheme.orbitDefault();
+        if (Prefs.THEME_ID.equals(key)) return fresh.id.equals(value);
+        if (Prefs.THEME_NAME.equals(key)) return fresh.name.equals(value);
+        if (Prefs.THEME_SURFACE.equals(key) || Prefs.THEME_BACKGROUND.equals(key)) {
+            return OrbitTheme.CLASSIC.equals(value);
+        }
+        return false;
+    }
+}

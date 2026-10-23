@@ -1,0 +1,10 @@
+// An explicit fork identity. Upstream builds keep their original certificate pin.
+def forkPin = providers.gradleProperty('orbitLocalizedCertificateSha256').orNull
+if (forkPin != null && !(forkPin ==~ /[0-9a-fA-F]{64}/)) {
+    throw new GradleException('orbitLocalizedCertificateSha256 must contain 64 hexadecimal digits')
+}
+ext.orbitLocalCertificate = forkPin ?: '7DAD619385DFF11EC731AA555F2B448A943C7391813D1A94DF1CB4232ECD41E3'
+ext.orbitBundledLocal = providers.gradleProperty('orbitBundledLocal').orElse('false').get().toBoolean()
+if (orbitBundledLocal && forkPin == null) {
+    throw new GradleException('A bundled fork build requires its own explicit signing certificate pin')
+}

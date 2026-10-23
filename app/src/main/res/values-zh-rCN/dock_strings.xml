@@ -1,0 +1,10 @@
+<resources>
+    <string name="dock_hint">问问 Orbit…</string>
+    <string name="dock_voice_conversation">语音对话</string>
+    <string name="dock_stop_voice_conversation">结束语音对话</string>
+    <string name="dock_expand">展开对话</string>
+    <string name="dock_collapse">收起对话</string>
+    <string name="dock_attachments">添加附件</string>
+    <string name="dock_use_screen">使用屏幕</string>
+    <string name="dock_screen_attached">已使用屏幕</string>
+</resources>

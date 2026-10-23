@@ -1,0 +1,132 @@
+package com.orbit.assistant;
+
+import static org.junit.Assert.assertArrayEquals;
+import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertNotNull;
+import static org.junit.Assert.assertTrue;
+
+import android.content.ClipData;
+import android.content.ClipboardManager;
+import android.content.Context;
+import android.widget.TextView;
+
+import org.junit.Test;
+import org.junit.runner.RunWith;
+import org.robolectric.Robolectric;
+import org.robolectric.RobolectricTestRunner;
+import org.robolectric.annotation.Config;
+
+/**
+ * Copy must take the real message, not chrome, and the contextual menu must expose Copy /
+ * Regenerate or Copy / Edit &amp; resend without putting persistent controls under bubbles.
+ */
+@RunWith(RobolectricTestRunner.class)
+@Config(sdk = {29, 31, 35})
+public final class MessageActionsTest {
+
+    @Test public void userCopyIsTheVisibleMessageAndNothingElse() {
+        assertEquals("Bring milk and eggs", MessageActions.userCopyText("Bring milk and eggs"));
+        assertEquals("Hello - world", MessageActions.userCopyText("Hello — world"));
+        assertEquals("", MessageActions.userCopyText(null));
+        assertEquals("", MessageActions.userCopyText(""));
+        assertFalse(MessageActions.userCopyText("Bring milk").contains("Copy"));
+        assertFalse(MessageActions.userCopyText("Bring milk").contains("user"));
+    }
+
+    @Test public void assistantCopyKeepsTheReplyAndATrailingSource() {
+        String raw = "OLED is usually best for perfect blacks.\n\nSource: https://example.com/oled";
+        String copied = MessageActions.assistantCopyText(raw);
+        assertTrue(copied.startsWith("OLED is usually best for perfect blacks."));
+        assertTrue(copied.contains("Source: https://example.com/oled"));
+        assertFalse(copied.contains("Copy"));
+        assertFalse(copied.contains("Regenerate"));
+    }
+
+    @Test public void assistantCopyKeepsMarkdownAndTheFullLongReply() {
+        StringBuilder body = new StringBuilder();
+        for (int i = 0; i < 40; i++) body.append("**Point ").append(i).append("** is still in the answer. ");
+        String copied = MessageActions.assistantCopyText(body.toString());
+        assertTrue(copied.contains("**Point 0**"));
+        assertTrue(copied.contains("**Point 39**"));
+        assertEquals(body.toString().trim(), copied);
+    }
+
+    @Test public void theLatestAssistantTurnOffersCopySaveAndRegenerate() {
+        assertArrayEquals(new String[]{MessageActions.COPY_MENU_LABEL,
+                        MessageActions.SAVE_TO_VAULT_MENU_LABEL, MessageActions.RETRY_MENU_LABEL},
+                MessageActions.assistantLabels(true));
+        assertEquals(3, MessageActions.assistantIcons(true).length);
+    }
+
+    /** Regenerate belongs to the latest turn alone. Saving an older answer is always offered. */
+    @Test public void olderAssistantTurnsOfferCopyAndSave() {
+        assertArrayEquals(new String[]{MessageActions.COPY_MENU_LABEL,
+                        MessageActions.SAVE_TO_VAULT_MENU_LABEL},
+                MessageActions.assistantLabels(false));
+        assertEquals(2, MessageActions.assistantIcons(false).length);
+    }
+
+    /** A surface that offers neither editing nor quoting offers Copy alone. */
+    @Test public void userTurnsOfferCopyOnly() {
+        assertArrayEquals(new String[]{MessageActions.COPY_MENU_LABEL},
+                MessageActions.userLabels());
+        assertEquals(1, MessageActions.userIcons().length);
+    }
+
+    /**
+     * Edit returned in 0.8.3.0-beta.3, in full chat only, as a branch rather than a resend: Copy,
+     * Edit, then Reply to this, each with its own icon.
+     */
+    @Test public void fullChatUserTurnsOfferCopyEditAndReply() {
+        assertArrayEquals(new String[]{MessageActions.COPY_MENU_LABEL,
+                        MessageActions.EDIT_MENU_LABEL, MessageActions.REPLY_MENU_LABEL},
+                MessageActions.userLabels(true, true));
+        int[] icons = MessageActions.userIcons(true, true);
+        assertEquals(3, icons.length);
+        assertEquals(R.drawable.ic_edit, icons[1]);
+        assertEquals("Reply no longer borrows the edit pencil", R.drawable.ic_reply, icons[2]);
+    }
+
+    @Test public void copyingPutsTheAssistantTextOnTheClipboard() {
+        android.app.Activity activity = Robolectric.buildActivity(android.app.Activity.class).setup().get();
+        MessageActions.copyAssistant(activity,
+                "Saturn is a gas giant.\n\nSource: https://example.com/saturn", null);
+        assertEquals("Saturn is a gas giant.\n\nSource: https://example.com/saturn",
+                clipboardText(activity));
+    }
+
+    @Test public void aUserBubbleCanBeCopiedWithoutChangingTheText() {
+        android.app.Activity activity = Robolectric.buildActivity(android.app.Activity.class).setup().get();
+        TextView bubble = UiKit.text(activity, "Pack a jacket", 15, UiKit.TEXT, false);
+        MessageActions.bindUser(bubble, "Pack a jacket", () -> {}, null);
+        assertTrue(bubble.isLongClickable());
+        MessageActions.copyUser(activity, "Pack a jacket", () -> {});
+        assertEquals("Pack a jacket", clipboardText(activity));
+        assertEquals("Pack a jacket", bubble.getText().toString());
+    }
+
+    @Test public void emptyUserTextDoesNotGainACopyGesture() {
+        android.app.Activity activity = Robolectric.buildActivity(android.app.Activity.class).setup().get();
+        TextView bubble = UiKit.text(activity, "", 15, UiKit.TEXT, false);
+        MessageActions.bindUser(bubble, "   ", () -> {}, null);
+        assertFalse(bubble.isLongClickable());
+    }
+
+    @Test public void anAssistantBubbleBecomesLongPressable() {
+        android.app.Activity activity = Robolectric.buildActivity(android.app.Activity.class).setup().get();
+        TextView bubble = UiKit.text(activity, "Saturn is a gas giant.", 15, UiKit.TEXT, false);
+        MessageActions.bindAssistant(bubble, "Saturn is a gas giant.", true, () -> {}, null);
+        assertTrue(bubble.isLongClickable());
+    }
+
+    private static String clipboardText(Context context) {
+        ClipboardManager cm = (ClipboardManager) context.getSystemService(Context.CLIPBOARD_SERVICE);
+        assertNotNull(cm);
+        ClipData clip = cm.getPrimaryClip();
+        assertNotNull(clip);
+        assertTrue(clip.getItemCount() > 0);
+        CharSequence text = clip.getItemAt(0).getText();
+        return text == null ? "" : text.toString();
+    }
+}

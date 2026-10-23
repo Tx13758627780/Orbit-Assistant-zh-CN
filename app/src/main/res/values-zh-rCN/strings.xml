@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Orbit 助手</string>
+    <string name="process_text_label">询问 Orbit</string>
+    <string name="widget_ask_description">打开可输入的 Orbit 聊天</string>
+    <string name="widget_routine_description">运行所选的 Orbit 自动流程</string>
+    <string name="widget_quick_description">使用所选的 Orbit 快捷操作</string>
+    <string name="widget_routine_label">自动流程</string>
+</resources>

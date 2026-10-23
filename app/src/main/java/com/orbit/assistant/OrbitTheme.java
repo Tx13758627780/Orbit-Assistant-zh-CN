@@ -1,0 +1,686 @@
+package com.orbit.assistant;
+
+import android.graphics.Color;
+
+import org.json.JSONObject;
+
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.List;
+import java.util.Locale;
+import java.util.UUID;
+
+/**
+ * One complete Orbit appearance, as a value.
+ *
+ * <p>Orbit already had an appearance system: an accent key, an AMOLED flag and two bubble-colour
+ * keys, each read straight out of {@code Prefs} by whatever needed it. Theme Studio does not
+ * replace that and deliberately does not introduce a second engine beside it. This class is the
+ * same four things named once, plus the two the editor adds — surface and background — so that a
+ * theme can be previewed, saved, named and applied as a single object instead of four unrelated
+ * preferences that happen to be edited on the same screen.
+ *
+ * <p>Every colour field is a <em>token string</em>, not an {@code int}. A token is one of:
+ *
+ * <ul>
+ *   <li>a catalogue key Orbit already understood — {@code dynamic}, {@code violet}, {@code mint} —
+ *       which keeps following the system accent or the shipped palette;</li>
+ *   <li>{@code classic}, meaning "whatever Orbit's own design says here", which is how a theme
+ *       stays correct when Orbit's defaults are retuned in a later release;</li>
+ *   <li>{@code accent}, on a bubble, meaning "follow the accent of this theme";</li>
+ *   <li>an explicit {@code #RRGGBB}.</li>
+ * </ul>
+ *
+ * <p>That is what makes migration from the four legacy preferences a straight read rather than a
+ * conversion: the values users already had are already valid tokens. It is also what keeps derived
+ * colours out of storage. A saved theme holds the handful of decisions a person made; every other
+ * colour Orbit draws is computed from those, in {@code UiKit}, every time.
+ *
+ * <p>Instances are immutable and always valid. Anything unparseable — a truncated hex value, a null
+ * name, a token from a newer schema — is normalised at construction, so no caller anywhere has to
+ * defend against a malformed theme.
+ */
+public final class OrbitTheme {
+
+    /**
+     * The storage schema. Bumped only when the meaning of an existing field changes; adding a new
+     * token with a safe default does not need it, because an older file simply lacks the key.
+     *
+     * <p>Schema 2 changes the meaning of a colour token in one narrow way: a {@code #RRGGBB} that
+     * is byte-identical to one of Orbit's named colours now stores as that name. The colour is the
+     * same either way, but the name is what lets Theme Studio say "Violet" instead of "custom
+     * #8B7CFF" and show the preset that uses it as selected.
+     */
+    public static final int SCHEMA = 2;
+
+    /**
+     * Format identifier written into every serialised theme.
+     *
+     * <p>Nothing in this release reads it: Beta 1 has no import. It is written now so that the file
+     * a later Beta exports and the file this Beta already stores are the same shape, and an import
+     * parser can reject somebody else's JSON without guessing.
+     */
+    public static final String FORMAT = "orbit.theme";
+
+    // ---- token vocabulary --------------------------------------------------------------------
+
+    /** "Whatever Orbit's own design says here." */
+    public static final String CLASSIC = "classic";
+    /** On a bubble: follow this theme's accent. */
+    public static final String ACCENT = "accent";
+    /** On the accent: follow the system/Material accent, as Orbit has always done. */
+    public static final String DYNAMIC = "dynamic";
+
+    // ---- identity ----------------------------------------------------------------------------
+
+    /** Stable storage identity. Never derived from the display name, which the user may reuse. */
+    public final String id;
+    public final String name;
+    public final int schema;
+    /** True for the presets Orbit ships, which cannot be renamed, edited in place, or deleted. */
+    public final boolean builtIn;
+
+    // ---- floating surface material -------------------------------------------------------------
+
+    /**
+     * A clean opaque floating surface. Orbit's traditional chrome, with no glass in it at all.
+     *
+     * <p>Not a downgrade and not an absence. Some themes read better with controls that are plainly
+     * surfaces rather than translucent panes, and until v0.8.0.0-beta.5 Orbit had no way to say so.
+     */
+    public static final String MATERIAL_SOLID = "solid";
+    /** Soft translucent glass. Subdued, slightly milky, and the quietest of the three. */
+    public static final String MATERIAL_FROSTED = "frosted";
+    /** Richer dimensional glass, with a local reflection and accent refraction. */
+    public static final String MATERIAL_LIQUID = "liquid";
+    /**
+     * What a theme that predates this choice is drawn with.
+     *
+     * <p>Liquid, because that is the material v0.8.0.0-beta.4 drew and this choice must not change
+     * how an existing theme looks. A person who wants Frosted is one tap away from it in the Colors
+     * card; a person who wanted nothing to change gets nothing changing, which is the promise every
+     * release in this line has been held to.
+     */
+    public static final String MATERIAL_DEFAULT = MATERIAL_LIQUID;
+
+    // ---- the seven decisions -----------------------------------------------------------------
+
+    public final String accent;
+    public final String userBubble;
+    public final String assistantBubble;
+    public final String surface;
+    public final String background;
+    public final boolean amoled;
+    /**
+     * Which material Orbit's floating controls are made of. Free, and deliberately so.
+     *
+     * <p>Orbit had floating glass before Orbit Pro existed, so the glass itself cannot move behind an
+     * entitlement - taking a shipped free visual feature away would be the one thing this project has
+     * promised never to do. Choosing between Solid, Frosted and Liquid is therefore free for everyone,
+     * and it is {@link OrbitProStyle} that holds the advanced tuning of whichever glass is chosen.
+     *
+     * <p>On the theme rather than beside it for the same reason every other appearance value is: a
+     * theme is one complete look, and a material stored as a loose device preference would not be
+     * saved, previewed, exported or applied with the theme it belongs to.
+     */
+    public final String material;
+
+    /**
+     * The advanced styling Orbit Pro adds, always present and never null.
+     *
+     * <p>Part of the theme rather than a set of preferences beside it, so that premium styling is
+     * saved, named, previewed, exported and applied by everything that already does those things
+     * to a theme. It is stored unconditionally and drawn conditionally: see {@link OrbitProStyle}
+     * for why keeping a Free device's stored premium values intact is the whole point.
+     */
+    public final OrbitProStyle pro;
+
+    OrbitTheme(String id, String name, boolean builtIn, String accent, String userBubble,
+               String assistantBubble, String surface, String background, boolean amoled) {
+        this(id, name, builtIn, accent, userBubble, assistantBubble, surface, background, amoled,
+                OrbitProStyle.DEFAULT);
+    }
+
+    /**
+     * The material is last rather than beside {@code amoled}, where it belongs conceptually.
+     *
+     * <p>Deliberate. Every existing caller passes these fields positionally, and inserting one in the
+     * middle of nine strings and a boolean is a change the compiler cannot catch: a theme built with
+     * its surface and its background the wrong way round still compiles. Appending it keeps every
+     * existing call site correct by construction and leaves exactly one overload to read.
+     */
+    OrbitTheme(String id, String name, boolean builtIn, String accent, String userBubble,
+               String assistantBubble, String surface, String background, boolean amoled,
+               OrbitProStyle pro) {
+        this(id, name, builtIn, accent, userBubble, assistantBubble, surface, background, amoled,
+                pro, MATERIAL_DEFAULT);
+    }
+
+    OrbitTheme(String id, String name, boolean builtIn, String accent, String userBubble,
+               String assistantBubble, String surface, String background, boolean amoled,
+               OrbitProStyle pro, String material) {
+        this.id = normalizeId(id);
+        this.name = normalizeName(name);
+        this.builtIn = builtIn;
+        this.schema = SCHEMA;
+        this.accent = normalizeAccent(accent);
+        this.userBubble = normalizeBubble(userBubble);
+        this.assistantBubble = normalizeBubble(assistantBubble);
+        this.surface = normalizeSurface(surface);
+        this.background = normalizeSurface(background);
+        this.amoled = amoled;
+        this.pro = pro == null ? OrbitProStyle.DEFAULT : pro;
+        this.material = normalizeMaterial(material);
+    }
+
+    /** A custom theme with a freshly generated identity. */
+    public static OrbitTheme custom(String name, String accent, String userBubble,
+                                    String assistantBubble, String surface, String background,
+                                    boolean amoled) {
+        return custom(name, accent, userBubble, assistantBubble, surface, background, amoled,
+                OrbitProStyle.DEFAULT);
+    }
+
+    public static OrbitTheme custom(String name, String accent, String userBubble,
+                                    String assistantBubble, String surface, String background,
+                                    boolean amoled, OrbitProStyle pro) {
+        return custom(name, accent, userBubble, assistantBubble, surface, background, amoled, pro,
+                MATERIAL_DEFAULT);
+    }
+
+    public static OrbitTheme custom(String name, String accent, String userBubble,
+                                    String assistantBubble, String surface, String background,
+                                    boolean amoled, OrbitProStyle pro, String material) {
+        return new OrbitTheme(newId(), name, false, accent, userBubble, assistantBubble,
+                surface, background, amoled, pro, material);
+    }
+
+    /**
+     * One of the three materials, or Liquid when the value is not one Orbit knows.
+     *
+     * <p>The same rule every other token here follows. A theme file naming a material from some later
+     * Orbit, or a preference edited by hand, produces a usable appearance rather than a crash - and it
+     * produces the one that matches what a theme without the field at all would get.
+     */
+    public static String normalizeMaterial(String value) {
+        if (value == null) return MATERIAL_DEFAULT;
+        String trimmed = value.trim().toLowerCase(java.util.Locale.US);
+        if (MATERIAL_SOLID.equals(trimmed)) return MATERIAL_SOLID;
+        if (MATERIAL_FROSTED.equals(trimmed)) return MATERIAL_FROSTED;
+        if (MATERIAL_LIQUID.equals(trimmed)) return MATERIAL_LIQUID;
+        return MATERIAL_DEFAULT;
+    }
+
+    /** True when this material is glass at all, and therefore has anything for Pro to tune. */
+    public static boolean isGlass(String material) {
+        return !MATERIAL_SOLID.equals(normalizeMaterial(material));
+    }
+
+    public boolean isGlass() {
+        return isGlass(material);
+    }
+
+    /** What each material is called. The selector shows these; storage never does. */
+    public static String materialLabel(String material) {
+        String value = normalizeMaterial(material);
+        if (MATERIAL_SOLID.equals(value)) return "Solid";
+        if (MATERIAL_FROSTED.equals(value)) return "Frosted";
+        return "Liquid";
+    }
+
+    public String materialLabel() {
+        return materialLabel(material);
+    }
+
+    /** The three materials, in the order the selector offers them: plainest first. */
+    public static String[] materials() {
+        return new String[]{MATERIAL_SOLID, MATERIAL_FROSTED, MATERIAL_LIQUID};
+    }
+
+    public static int materialIndex(String material) {
+        String value = normalizeMaterial(material);
+        String[] all = materials();
+        for (int i = 0; i < all.length; i++) if (all[i].equals(value)) return i;
+        return all.length - 1;
+    }
+
+    public static String newId() {
+        return "t_" + UUID.randomUUID().toString().replace("-", "").substring(0, 16);
+    }
+
+    // ---- derived copies ----------------------------------------------------------------------
+
+    public OrbitTheme withAccent(String value) {
+        return new OrbitTheme(id, name, builtIn, value, userBubble, assistantBubble,
+                surface, background, amoled, pro, material);
+    }
+
+    public OrbitTheme withUserBubble(String value) {
+        return new OrbitTheme(id, name, builtIn, accent, value, assistantBubble,
+                surface, background, amoled, pro, material);
+    }
+
+    public OrbitTheme withAssistantBubble(String value) {
+        return new OrbitTheme(id, name, builtIn, accent, userBubble, value,
+                surface, background, amoled, pro, material);
+    }
+
+    public OrbitTheme withSurface(String value) {
+        return new OrbitTheme(id, name, builtIn, accent, userBubble, assistantBubble,
+                value, background, amoled, pro, material);
+    }
+
+    public OrbitTheme withBackground(String value) {
+        return new OrbitTheme(id, name, builtIn, accent, userBubble, assistantBubble,
+                surface, value, amoled, pro, material);
+    }
+
+    public OrbitTheme withAmoled(boolean value) {
+        return new OrbitTheme(id, name, builtIn, accent, userBubble, assistantBubble,
+                surface, background, value, pro, material);
+    }
+
+    /** The same theme with its floating controls made of something else. */
+    public OrbitTheme withMaterial(String value) {
+        return new OrbitTheme(id, name, builtIn, accent, userBubble, assistantBubble,
+                surface, background, amoled, pro, value);
+    }
+
+    /** The same theme wearing a different advanced styling layer. */
+    public OrbitTheme withPro(OrbitProStyle value) {
+        return new OrbitTheme(id, name, builtIn, accent, userBubble, assistantBubble,
+                surface, background, amoled, value, material);
+    }
+
+    public OrbitTheme withName(String value) {
+        return new OrbitTheme(id, value, builtIn, accent, userBubble, assistantBubble,
+                surface, background, amoled, pro, material);
+    }
+
+    /**
+     * The same colours as a new, editable, custom theme.
+     *
+     * <p>Used both by Duplicate and by "save this draft as a preset" after starting from a built-in
+     * one: what comes out is always a theme the user owns, never a second copy of a shipped preset
+     * pretending to be editable.
+     */
+    public OrbitTheme asCustomNamed(String newName) {
+        return new OrbitTheme(newId(), newName, false, accent, userBubble, assistantBubble,
+                surface, background, amoled, pro, material);
+    }
+
+    /**
+     * True when the two of these describe the same appearance, ignoring identity and name.
+     *
+     * <p>Premium styling counts. It is an appearance decision like any other, and leaving it out
+     * would break the two things this method is actually for: Theme Studio would think a draft was
+     * unchanged after a bubble-roundness edit and refuse to let it be applied, and the gallery
+     * would go on showing Orbit Default as selected while the conversation drew something else.
+     */
+    public boolean sameColours(OrbitTheme other) {
+        return other != null
+                && accent.equals(other.accent)
+                && userBubble.equals(other.userBubble)
+                && assistantBubble.equals(other.assistantBubble)
+                && surface.equals(other.surface)
+                && background.equals(other.background)
+                && amoled == other.amoled
+                && material.equals(other.material)
+                && pro.same(other.pro);
+    }
+
+    /**
+     * Whether this theme leaves Orbit's own card ramp and page background alone.
+     *
+     * <p>{@code UiKit} takes a shortcut for exactly this case and uses its shipped constants
+     * verbatim rather than re-deriving them, so that a default install after this release renders
+     * identically to one before it.
+     */
+    public boolean usesClassicSurfaces() {
+        return CLASSIC.equals(surface) && CLASSIC.equals(background);
+    }
+
+    // ---- serialisation -----------------------------------------------------------------------
+
+    public JSONObject toJson() throws Exception {
+        JSONObject out = new JSONObject();
+        out.put("format", FORMAT);
+        out.put("schema", SCHEMA);
+        out.put("id", id);
+        out.put("name", name);
+        out.put("builtIn", builtIn);
+        out.put("accent", accent);
+        out.put("userBubble", userBubble);
+        out.put("assistantBubble", assistantBubble);
+        out.put("surface", surface);
+        out.put("background", background);
+        out.put("amoled", amoled);
+        // A free appearance value, so it sits with the other free ones rather than inside the premium
+        // block. A v0.8.0.0-beta.4 file has no such key and reads back as Liquid, which is the
+        // material that release drew.
+        out.put("material", material);
+        // Always written, even at its defaults. A theme document that omitted it would be
+        // indistinguishable from one written before premium styling existed, and the two deserve
+        // the same treatment on import but not the same guarantee on export: a person exporting a
+        // theme they styled has to get a file that still describes it on the next device.
+        out.put("pro", pro.toJson());
+        return out;
+    }
+
+    /**
+     * Reads a stored theme, or null when the object is missing or is not one of ours.
+     *
+     * <p>Anything that survives that check is then normalised field by field, so a file corrupted
+     * in a way JSON cannot detect — a hex value truncated to four digits, a name of ten thousand
+     * characters — degrades to a usable theme instead of a crash on the next launch.
+     */
+    public static OrbitTheme fromJson(JSONObject json) {
+        if (json == null) return null;
+        int schema = json.optInt("schema", 0);
+        if (schema <= 0 || schema > SCHEMA) return null;
+        String id = json.optString("id", "");
+        if (id.trim().isEmpty()) return null;
+        return new OrbitTheme(
+                id,
+                json.optString("name", ""),
+                json.optBoolean("builtIn", false),
+                json.optString("accent", DYNAMIC),
+                json.optString("userBubble", CLASSIC),
+                json.optString("assistantBubble", CLASSIC),
+                json.optString("surface", CLASSIC),
+                json.optString("background", CLASSIC),
+                json.optBoolean("amoled", false),
+                // Absent in every file written before this release, which is exactly the case the
+                // defaults are chosen to serve: an older theme comes back looking the way it did.
+                OrbitProStyle.fromJson(json.optJSONObject("pro")),
+                json.optString("material", MATERIAL_DEFAULT));
+    }
+
+    // ---- token handling ----------------------------------------------------------------------
+
+    /** {@code #RRGGBB} in upper case, or null when this is not a hex token. */
+    public static String parseHexToken(String token) {
+        if (token == null) return null;
+        String value = token.trim();
+        if (value.length() != 7 || value.charAt(0) != '#') return null;
+        for (int i = 1; i < 7; i++) {
+            char ch = value.charAt(i);
+            boolean hex = (ch >= '0' && ch <= '9') || (ch >= 'a' && ch <= 'f')
+                    || (ch >= 'A' && ch <= 'F');
+            if (!hex) return null;
+        }
+        return value.toUpperCase(Locale.US);
+    }
+
+    public static boolean isHexToken(String token) {
+        return parseHexToken(token) != null;
+    }
+
+    /** The opaque colour a hex token names. Only call this when {@link #isHexToken} is true. */
+    public static int hexTokenColor(String token) {
+        String value = parseHexToken(token);
+        if (value == null) return Color.BLACK;
+        return Color.rgb(
+                Integer.parseInt(value.substring(1, 3), 16),
+                Integer.parseInt(value.substring(3, 5), 16),
+                Integer.parseInt(value.substring(5, 7), 16));
+    }
+
+    /** An opaque colour written back as the token that stores it. Alpha is deliberately dropped. */
+    public static String colorToken(int color) {
+        return String.format(Locale.US, "#%02X%02X%02X",
+                Color.red(color), Color.green(color), Color.blue(color));
+    }
+
+    /** How long a theme name may be. Long enough for a real name, short enough to render. */
+    public static final int MAX_NAME_LENGTH = 40;
+
+    /**
+     * A display name that will actually fit on a preset card.
+     *
+     * <p>Blank becomes "Custom theme" rather than an empty card. Duplicates are allowed on purpose:
+     * two themes may legitimately be called "Night", and identity has never come from the name.
+     */
+    public static String normalizeName(String value) {
+        String trimmed = value == null ? "" : value.trim().replaceAll("\\s+", " ");
+        if (trimmed.isEmpty()) return "Custom theme";
+        return trimmed.length() <= MAX_NAME_LENGTH ? trimmed
+                : trimmed.substring(0, MAX_NAME_LENGTH).trim();
+    }
+
+    private static String normalizeId(String value) {
+        String trimmed = value == null ? "" : value.trim();
+        return trimmed.isEmpty() ? newId() : trimmed;
+    }
+
+    /**
+     * The token a colour is stored as, with a named colour preferred over its own hex value.
+     *
+     * <p>Applied at construction, so there is no way to build a theme that holds {@code #4C00FF}
+     * rather than {@code nova}. That matters beyond tidiness: {@link #sameColours} compares tokens,
+     * so without this a theme built from a picker and the identical preset would compare as
+     * different and the gallery would show nothing selected.
+     */
+    private static String canonicalHex(String hex) {
+        String named = OrbitPalette.keyForHexToken(hex);
+        return named != null ? named : hex;
+    }
+
+    private static String normalizeAccent(String value) {
+        String hex = parseHexToken(value);
+        if (hex != null) return canonicalHex(hex);
+        String trimmed = value == null ? "" : value.trim();
+        for (String key : UiKit.accentKeys()) if (key.equals(trimmed)) return key;
+        return DYNAMIC;
+    }
+
+    private static String normalizeBubble(String value) {
+        String hex = parseHexToken(value);
+        if (hex != null) return canonicalHex(hex);
+        String trimmed = value == null ? "" : value.trim();
+        for (String key : UiKit.bubbleColorKeys()) if (key.equals(trimmed)) return key;
+        return CLASSIC;
+    }
+
+    private static String normalizeSurface(String value) {
+        String hex = parseHexToken(value);
+        return hex != null ? hex : CLASSIC;
+    }
+
+    // ---- built-in presets --------------------------------------------------------------------
+
+    /** Storage ids for the shipped presets. Stable: a saved active theme refers to one by id. */
+    public static final String ID_DEFAULT = "orbit.default";
+    public static final String ID_AMOLED = "orbit.amoled";
+    public static final String ID_NEBULA = "orbit.nebula";
+    public static final String ID_TIDE = "orbit.tide";
+    public static final String ID_EMBER = "orbit.ember";
+    public static final String ID_MOSS = "orbit.moss";
+    public static final String ID_BLURPLE = "orbit.blurple";
+    public static final String ID_NOVA_AMOLED = "orbit.nova.amoled";
+
+    /** The Orbit Pro presets. Their {@code orbit.pro.} prefix is the identity, not their name. */
+    public static final String ID_SIGNAL_VIOLET = "orbit.pro.signal.violet";
+    public static final String ID_NEBULA_GLASS = "orbit.pro.nebula.glass";
+    public static final String ID_AURORA = "orbit.pro.aurora";
+    public static final String ID_NOVA_ULTRA = "orbit.pro.nova.ultra";
+
+    /**
+     * Whether a preset is one of the premium ones.
+     *
+     * <p>Asked of the id, never of the display name. A name is a string a user can see, type into
+     * a saved theme, and import from a file somebody else wrote; deciding entitlement from one
+     * would mean a theme called "Signal Violet" was premium and a duplicate of the real thing was
+     * not. The prefix is storage identity: it is assigned here, it is refused to imported files by
+     * {@link OrbitThemeFileCodec}, and it cannot be reached by renaming anything.
+     *
+     * <p>This is also the only place the question is answered. Call sites ask {@link #premium()};
+     * the policy that decides what being premium <em>means</em> is {@code OrbitThemeStore.canApply}.
+     */
+    public static boolean isPremiumId(String id) {
+        return id != null && id.startsWith(PREMIUM_ID_PREFIX);
+    }
+
+    /** The prefix that marks a shipped preset as belonging to Orbit Pro. */
+    public static final String PREMIUM_ID_PREFIX = "orbit.pro.";
+
+    /** True when this theme is one of Orbit's premium presets. */
+    public boolean premium() {
+        return isPremiumId(id);
+    }
+
+    /**
+     * A short second line on a built-in preset card, or "" for every other theme.
+     *
+     * <p>Derived from the id rather than stored on the theme, so it is not part of the saved
+     * schema, is never copied onto a duplicate, and can never be typed into a custom theme's name.
+     * There is exactly one of these, and it is a note rather than a badge: no emoji, no colour, no
+     * ornament.
+     */
+    public static String noteFor(String id) {
+        return ID_NOVA_AMOLED.equals(id) ? CREATOR_FAVORITE : "";
+    }
+
+    /** The one note Orbit ships. */
+    public static final String CREATOR_FAVORITE = "Creator's favorite";
+
+    /** This theme's note, or "" when it has none. */
+    public String note() {
+        return noteFor(id);
+    }
+
+    private static final List<OrbitTheme> BUILT_IN = buildBuiltIns();
+
+    private static List<OrbitTheme> buildBuiltIns() {
+        List<OrbitTheme> out = new ArrayList<>();
+        // Orbit as it ships. Every token classic, so this preset is defined by Orbit's design
+        // rather than by a snapshot of it, and stays correct if those defaults are ever retuned.
+        out.add(new OrbitTheme(ID_DEFAULT, "Orbit Default", true,
+                DYNAMIC, CLASSIC, CLASSIC, CLASSIC, CLASSIC, false));
+        // The same thing on a true-black page. Surfaces stay classic on purpose: AMOLED is about
+        // the large lit area, not about flattening every card into the background.
+        out.add(new OrbitTheme(ID_AMOLED, "Orbit AMOLED", true,
+                DYNAMIC, CLASSIC, CLASSIC, CLASSIC, CLASSIC, true));
+        // The creator's own Orbit: Nova on a true-black page. Not a snapshot of the classic
+        // Nova-plus-AMOLED settings, because that combination has a real flaw — Nova at full
+        // strength is 2.3 to 1 against a card, which is below the threshold Orbit itself warns
+        // about, so the app would ship a preset that trips its own contrast check. The accent here
+        // is Nova's exact hue lifted until it reads, and the surfaces are given a violet cast so
+        // the black page has cards and bubbles that belong to the same colour rather than sitting
+        // on it as neutral grey.
+        out.add(new OrbitTheme(ID_NOVA_AMOLED, "Nova AMOLED", true,
+                "#7A41FF", "#3A17A8", "#1B1531", "#161226", "#000000", true));
+        // Named colours, not the hex values that happen to equal them. Nebula's accent has always
+        // *been* Violet; writing it as #8B7CFF made the editor call Orbit's own colour custom.
+        out.add(new OrbitTheme(ID_NEBULA, "Nebula", true,
+                "violet", "#3A2E63", "#1F1930", "#1A1626", "#0B0714", false));
+        out.add(new OrbitTheme(ID_TIDE, "Tide", true,
+                "blue", "#1E3A5C", "#16202E", "#141C28", "#070B12", false));
+        out.add(new OrbitTheme(ID_EMBER, "Ember", true,
+                "#FF8A5B", "#4A2A1F", "#2A1D1A", "#241A18", "#120B0A", false));
+        out.add(new OrbitTheme(ID_MOSS, "Moss", true,
+                "mint", "#1E4038", "#182722", "#16211D", "#08110E", false));
+        // Orbit's classic ramp with the blurple accent carried through the conversation.
+        out.add(new OrbitTheme(ID_BLURPLE, "Blurple", true,
+                "blurple", "#2B3060", CLASSIC, CLASSIC, CLASSIC, false));
+
+        // ---- Orbit Pro ----------------------------------------------------------------------
+        // The first two presets that need the premium layer to exist at all. Both are ordinary
+        // Orbit themes in every free respect - six colour decisions and an AMOLED flag - and both
+        // then say something with the styling layer that no free preset can. On a Free device
+        // that second half simply does not draw, which is why they are still readable, still
+        // distinct, and still recognisably Orbit there.
+
+        // Violet-forward Orbit on a true-black page: cooler and more deliberate than Nova AMOLED,
+        // with the message shape squared off a little and a hairline holding each bubble. The
+        // restraint is the point - a premium preset that announced itself with glow would be the
+        // opposite of what Orbit looks like.
+        out.add(new OrbitTheme(ID_SIGNAL_VIOLET, "Signal Violet", true,
+                "#9070FF", "#2E2160", "#17142A", "#141221", "#000000", true,
+                OrbitProStyle.of(14, OrbitProStyle.OUTLINE_SUBTLE, 206, 130, 135),
+                // Frosted rather than Liquid. Signal Violet is the restrained one - squared bubbles,
+                // a hairline, a true-black page - and soft translucent chrome is what that restraint
+                // looks like on a floating control. It is also how this preset demonstrates that the
+                // material is a real choice rather than a single house style.
+                MATERIAL_FROSTED));
+
+        // The glass one. Nebula's family of colours, pushed into the floating chrome rather than
+        // the conversation: a more translucent surface, more of the accent in it, and a brighter
+        // lit edge, with softer bubbles underneath so the two read as one design. Still bounded by
+        // the same ceilings every other value is, so it stays glass rather than becoming a light.
+        out.add(new OrbitTheme(ID_NEBULA_GLASS, "Nebula Glass", true,
+                "violet", "#33275C", "#1C1730", "#191427", "#0A0714", false,
+                OrbitProStyle.of(22, OrbitProStyle.OUTLINE_SUBTLE, 188, 155, 160)));
+
+        // The two presets v0.8.0.0-beta.4 added, and the first two whose point is the page itself
+        // rather than what is on it. Both are still ordinary Orbit themes in every free respect, and
+        // both still fall back to exactly that on a device without Pro.
+
+        // Aurora: the linear one. Deep cool navy at the foot running up into indigo, which is the
+        // right way round for the thing it is named after - light gathers towards the top of a sky,
+        // not the bottom of one. Two colours from the same cold end of the spectrum on purpose: a
+        // gradient between colours that disagree is a rainbow, and Orbit does not have those.
+        out.add(new OrbitTheme(ID_AURORA, "Aurora", true,
+                "#7C8CFF", "#243066", "#161C33", "#161C33", "#0B0F1E", false,
+                OrbitProStyle.of(20, OrbitProStyle.OUTLINE_SUBTLE, 194, 118, 140)
+                        .withBackgroundMode(OrbitProStyle.BACKGROUND_LINEAR)
+                        .withBackgroundEffectColor("#242A66")
+                        .withGradientDirection(OrbitProStyle.DIRECTION_BOTTOM_TOP),
+                // Frosted, because the gradient is the thing to look at here. A reflective control
+                // over a graded page competes with it; a soft translucent one lets the page through.
+                MATERIAL_FROSTED));
+
+        // Nova Ultra: the glow one, and deliberately not Signal Violet with the light turned up.
+        // Signal Violet is a true-black page with a bright violet on it; this is a near-black one
+        // that is very slightly blue, a colder and deeper accent, and a blue-violet light sitting
+        // high on the page - so the two read as different themes rather than two settings of one.
+        // Not AMOLED, and that is the design rather than an oversight: AMOLED means a true-black
+        // page, a true-black page suppresses background effects, and a preset whose whole point is
+        // its glow must not ship with the thing that hides it already switched on.
+        out.add(new OrbitTheme(ID_NOVA_ULTRA, "Nova Ultra", true,
+                "#7E5BFF", "#2A1D5E", "#14112B", "#151129", "#07060F", false,
+                OrbitProStyle.of(16, OrbitProStyle.OUTLINE_SUBTLE, 176, 150, 158)
+                        .withBackgroundMode(OrbitProStyle.BACKGROUND_GLOW)
+                        .withBackgroundEffectColor("#5B3FCF")
+                        .withGlowStrength(55)
+                        .withGlowSize(70)
+                        .withGlowPosition(OrbitProStyle.GLOW_TOP),
+                // Liquid, because a glow is exactly what dimensional glass has to work with: light
+                // behind a translucent body is what makes depth legible rather than decorative.
+                MATERIAL_LIQUID));
+        return Collections.unmodifiableList(out);
+    }
+
+    /** The presets anyone can apply. Every shipped theme that is not an Orbit Pro one. */
+    public static List<OrbitTheme> freeBuiltIns() {
+        List<OrbitTheme> out = new ArrayList<>();
+        for (OrbitTheme preset : BUILT_IN) if (!preset.premium()) out.add(preset);
+        return Collections.unmodifiableList(out);
+    }
+
+    /** The presets Orbit Pro adds. */
+    public static List<OrbitTheme> premiumBuiltIns() {
+        List<OrbitTheme> out = new ArrayList<>();
+        for (OrbitTheme preset : BUILT_IN) if (preset.premium()) out.add(preset);
+        return Collections.unmodifiableList(out);
+    }
+
+    /** Every preset Orbit ships, in gallery order. */
+    public static List<OrbitTheme> builtIns() {
+        return BUILT_IN;
+    }
+
+    public static OrbitTheme builtIn(String id) {
+        for (OrbitTheme theme : BUILT_IN) if (theme.id.equals(id)) return theme;
+        return null;
+    }
+
+    public static boolean isBuiltInId(String id) {
+        return builtIn(id) != null;
+    }
+
+    /** Orbit's own appearance. The fallback for anything that cannot be read. */
+    public static OrbitTheme orbitDefault() {
+        return BUILT_IN.get(0);
+    }
+}

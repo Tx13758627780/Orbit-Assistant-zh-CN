@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="local_ai_check_failed">连接失败</string>
+    <string name="local_ai_connection_failed">无法连接 Orbit 本地 AI 组件。请安装此版本配套的组件后重试，并检查系统是否允许组件在后台运行。</string>
+    <string name="local_ai_retry_connection">重试连接</string>
+</resources>

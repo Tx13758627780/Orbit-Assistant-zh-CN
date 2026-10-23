@@ -1,0 +1,652 @@
+package com.orbit.assistant;
+
+import android.content.Context;
+import android.graphics.Bitmap;
+
+import java.util.List;
+
+public final class AssistantClient {
+    public interface Callback {
+        default void onDelta(String text) {}
+        /**
+         * A short, safe statement about what is happening right now, for display only.
+         *
+         * <p>Observational by construction. It carries no reply, claims no completion, and a
+         * provider that never calls it behaves exactly as it did before this existed. Anything a
+         * surface does in response must be limited to what it shows.
+         *
+         * <p>Never persisted, never sent back to a model, and never mixed into the answer: an
+         * update is live commentary on a request in flight and dies with it.
+         */
+        default void onThinking(ThinkingUpdate update) {}
+        void onSuccess(AssistantReply reply);
+        void onError(String message);
+    }
+
+    public static final class History {
+        public final String role;
+        public final String content;
+        /** Kept for backward compatibility; true now means any attachment exists. */
+        public final boolean screenAttached;
+        /**
+         * The first stored image of this turn, or empty.
+         *
+         * <p>Kept as its own field because everything written before v0.7.8.0 Beta 3 recorded
+         * exactly one, and an older conversation must keep loading unchanged. It is always the
+         * first element of {@link #attachmentPaths}; nothing may set one without the other.
+         */
+        public final String attachmentPath;
+        /**
+         * Every stored image this turn carried, in the order the user attached them.
+         *
+         * <p>A turn now holds a set rather than a slot, and the set is what makes a follow-up
+         * about "the third photo" answerable. Reading a conversation saved before this existed
+         * yields the single legacy path as a one-element list, so no migration runs and nothing
+         * stored is rewritten.
+         */
+        public final List<String> attachmentPaths;
+        /** Exact retained PDFs carried by this turn, separate from rendered preview images. */
+        public final List<DocumentReference> documents;
+        public final String attachmentKind;
+        public final String attachmentLabel;
+        /** Local request context needed for regeneration of text/PDF/screen attachments. */
+        public final String attachmentText;
+        /** Snapshot of memories supplied to the AI for this assistant turn. */
+        public final String memoryUsage;
+        /** Optional user-approved memory suggestion attached to this assistant turn. */
+        public final String memorySuggestionText;
+        public final String memorySuggestionCategory;
+        /**
+         * The id of the request the user stopped at this point in the turn, or empty for none.
+         *
+         * <p>This is what anchors the stopped mark. It is state, not content: it never reaches the
+         * model, is never rendered as text, and no "Stopped" message is written anywhere. It lives
+         * on the message because the message is the thing that keeps its place when a conversation
+         * grows, so the mark cannot drift onto a later turn the way a conversation-tail derivation
+         * can.
+         *
+         * <p>It carries a real request id rather than a bare flag, so the association can be
+         * checked against {@link PendingRequestStore} and so one turn's mark can never be confused
+         * with another's. Turns are never identified by comparing prompt text.
+         */
+        public final String stoppedRequestId;
+        /**
+         * Sourced pictures that belong to this assistant answer, or empty.
+         *
+         * <p>A companion field on the message rather than markup inside it. Writing an image into
+         * the answer's own text would mean the thing the user copies, the thing Orbit speaks aloud
+         * and the thing a model reads back as history all contain a URL that is not part of what
+         * was said - and it would put a fetchable address inside content Orbit treats as prose.
+         * Keeping it beside the text means the answer is exactly the answer, and the pictures are
+         * exactly the pictures.
+         *
+         * <p>Absent from every message written before v0.7.8.5, and that is the whole migration: a
+         * stored message with no {@code richImages} key reads as one with no pictures, which is
+         * what every older message is. A malformed entry is dropped on the way in and the answer
+         * loads normally, because losing a picture must never cost somebody their conversation.
+         */
+        public final List<RichAnswerImage> richImages;
+        /** Completed request ownership and hosted-search provenance. Never sent as model history. */
+        public final String replyRequestId;
+        public final List<String> sourceUrls;
+        /**
+         * The earlier message this user turn replies to (0.8.3.0+), or null. Context the user chose
+         * to point at, never an instruction; see {@link QuotedMessage}.
+         */
+        public final QuotedMessage quote;
+        /** What answered this assistant turn and how long it took, when Orbit knows. Or null. */
+        public final ResponseDetails details;
+
+        public History(String role, String content) {
+            this(role, content, false, "", "", "", "", "", "", "");
+        }
+
+        public History(String role, String content, boolean screenAttached) {
+            this(role, content, screenAttached, "", screenAttached ? "screen" : "",
+                    screenAttached ? "Screen attached" : "", "", "", "", "");
+        }
+
+        public History(String role, String content, boolean screenAttached, String attachmentPath) {
+            this(role, content, screenAttached, attachmentPath,
+                    screenAttached ? "screen" : "",
+                    screenAttached ? "Screen attached" : "", "", "", "", "");
+        }
+
+        public History(String role, String content, boolean attached, String attachmentPath,
+                       String attachmentKind, String attachmentLabel, String attachmentText) {
+            this(role, content, attached, attachmentPath, attachmentKind, attachmentLabel,
+                    attachmentText, "", "", "");
+        }
+
+        public History(String role, String content, boolean attached, String attachmentPath,
+                       String attachmentKind, String attachmentLabel, String attachmentText,
+                       String memoryUsage, String memorySuggestionText,
+                       String memorySuggestionCategory) {
+            this(role, content, attached, attachmentPath, attachmentKind, attachmentLabel,
+                    attachmentText, memoryUsage, memorySuggestionText, memorySuggestionCategory, "");
+        }
+
+        public History(String role, String content, boolean attached, String attachmentPath,
+                       String attachmentKind, String attachmentLabel, String attachmentText,
+                       String memoryUsage, String memorySuggestionText,
+                       String memorySuggestionCategory, String stoppedRequestId) {
+            this(role, content, attached,
+                    attachmentPath == null || attachmentPath.trim().isEmpty()
+                            ? java.util.Collections.emptyList()
+                            : java.util.Collections.singletonList(attachmentPath),
+                    attachmentKind, attachmentLabel, attachmentText, memoryUsage,
+                    memorySuggestionText, memorySuggestionCategory, stoppedRequestId);
+        }
+
+        /**
+         * The full constructor: a turn with any number of stored images.
+         *
+         * <p>Every other constructor funnels here, so "one image" is simply the one-element case
+         * and there is no second code path for it to drift away from.
+         */
+        public History(String role, String content, boolean attached, List<String> attachmentPaths,
+                       String attachmentKind, String attachmentLabel, String attachmentText,
+                       String memoryUsage, String memorySuggestionText,
+                       String memorySuggestionCategory, String stoppedRequestId) {
+            this(role, content, attached, attachmentPaths, attachmentKind, attachmentLabel,
+                    attachmentText, memoryUsage, memorySuggestionText, memorySuggestionCategory,
+                    stoppedRequestId, java.util.Collections.emptyList());
+        }
+
+        public History(String role, String content, boolean attached, List<String> attachmentPaths,
+                       String attachmentKind, String attachmentLabel, String attachmentText,
+                       String memoryUsage, String memorySuggestionText,
+                       String memorySuggestionCategory, String stoppedRequestId,
+                       List<DocumentReference> documents) {
+            this(role, content, attached, attachmentPaths, attachmentKind, attachmentLabel,
+                    attachmentText, memoryUsage, memorySuggestionText, memorySuggestionCategory,
+                    stoppedRequestId, documents, java.util.Collections.emptyList());
+        }
+
+        /** The full constructor: a turn that may also carry sourced pictures of its own. */
+        public History(String role, String content, boolean attached, List<String> attachmentPaths,
+                       String attachmentKind, String attachmentLabel, String attachmentText,
+                       String memoryUsage, String memorySuggestionText,
+                       String memorySuggestionCategory, String stoppedRequestId,
+                       List<DocumentReference> documents, List<RichAnswerImage> richImages) {
+            this(role, content, attached, attachmentPaths, attachmentKind, attachmentLabel,
+                    attachmentText, memoryUsage, memorySuggestionText, memorySuggestionCategory,
+                    stoppedRequestId, documents, richImages, "", java.util.Collections.emptyList());
+        }
+
+        public History(String role, String content, boolean attached, List<String> attachmentPaths,
+                       String attachmentKind, String attachmentLabel, String attachmentText,
+                       String memoryUsage, String memorySuggestionText,
+                       String memorySuggestionCategory, String stoppedRequestId,
+                       List<DocumentReference> documents, List<RichAnswerImage> richImages,
+                       String replyRequestId, List<String> sourceUrls) {
+            this(role, content, attached, attachmentPaths, attachmentKind, attachmentLabel,
+                    attachmentText, memoryUsage, memorySuggestionText, memorySuggestionCategory,
+                    stoppedRequestId, documents, richImages, replyRequestId, sourceUrls, null, null);
+        }
+
+        public History(String role, String content, boolean attached, List<String> attachmentPaths,
+                       String attachmentKind, String attachmentLabel, String attachmentText,
+                       String memoryUsage, String memorySuggestionText,
+                       String memorySuggestionCategory, String stoppedRequestId,
+                       List<DocumentReference> documents, List<RichAnswerImage> richImages,
+                       String replyRequestId, List<String> sourceUrls, QuotedMessage quote,
+                       ResponseDetails details) {
+            this.quote = quote;
+            this.details = details;
+            this.replyRequestId = replyRequestId == null ? "" : replyRequestId.trim();
+            this.sourceUrls = new AssistantReply("").withSourceUrls(sourceUrls).sourceUrls;
+            this.stoppedRequestId = stoppedRequestId == null ? "" : stoppedRequestId.trim();
+            List<RichAnswerImage> pictures = new java.util.ArrayList<>();
+            if (richImages != null) {
+                for (RichAnswerImage image : richImages) {
+                    if (pictures.size() >= RichAnswerImage.MAX_PER_MESSAGE) break;
+                    // Bounded and checked here, so no store, backup or provider can put more
+                    // pictures under one answer than Orbit is willing to draw.
+                    if (image != null && image.isUsable()) pictures.add(image);
+                }
+            }
+            this.richImages = java.util.Collections.unmodifiableList(pictures);
+            this.role = role;
+            this.content = content;
+            this.screenAttached = attached;
+            List<String> paths = new java.util.ArrayList<>();
+            if (attachmentPaths != null) {
+                for (String path : attachmentPaths) {
+                    if (path != null && !path.trim().isEmpty()) paths.add(path);
+                }
+            }
+            this.attachmentPaths = java.util.Collections.unmodifiableList(paths);
+            this.attachmentPath = paths.isEmpty() ? "" : paths.get(0);
+            List<DocumentReference> docs = new java.util.ArrayList<>();
+            if (documents != null) {
+                for (DocumentReference document : documents) {
+                    if (document != null && document.isUsable()) docs.add(document);
+                }
+            }
+            this.documents = java.util.Collections.unmodifiableList(docs);
+            this.attachmentKind = attachmentKind == null ? "" : attachmentKind;
+            this.attachmentLabel = attachmentLabel == null ? "" : attachmentLabel;
+            this.attachmentText = attachmentText == null ? "" : attachmentText;
+            this.memoryUsage = memoryUsage == null ? "" : memoryUsage.trim();
+            this.memorySuggestionText = memorySuggestionText == null ? "" : memorySuggestionText.trim();
+            this.memorySuggestionCategory = memorySuggestionCategory == null ? "" : memorySuggestionCategory.trim();
+        }
+
+        /** True when the user stopped the reply belonging to this point in the conversation. */
+        public boolean isStopped() { return !stoppedRequestId.isEmpty(); }
+
+        /** A copy of this message carrying the stopped request id, everything else untouched. */
+        public History withStoppedRequestId(String requestId) {
+            return new History(role, content, screenAttached, attachmentPaths, attachmentKind,
+                    attachmentLabel, attachmentText, memoryUsage, memorySuggestionText,
+                    memorySuggestionCategory, requestId, documents, richImages, replyRequestId, sourceUrls, quote, details);
+        }
+
+        /**
+         * A copy of this message carrying sourced pictures, everything else untouched.
+         *
+         * <p>Written this way rather than by rebuilding the message at the call site, because the
+         * fields an attach must not disturb are the ones nobody thinks about: a turn's attachments,
+         * its memory snapshot and its stopped anchor all have to survive a picture arriving three
+         * seconds after the answer did.
+         */
+        public History withRichImages(List<RichAnswerImage> images) {
+            return new History(role, content, screenAttached, attachmentPaths, attachmentKind,
+                    attachmentLabel, attachmentText, memoryUsage, memorySuggestionText,
+                    memorySuggestionCategory, stoppedRequestId, documents, images, replyRequestId, sourceUrls, quote, details);
+        }
+
+        public History withReplyProvenance(String requestId, List<String> sources) {
+            return new History(role, content, screenAttached, attachmentPaths, attachmentKind,
+                    attachmentLabel, attachmentText, memoryUsage, memorySuggestionText,
+                    memorySuggestionCategory, stoppedRequestId, documents, richImages, requestId, sources, quote, details);
+        }
+
+        /** A copy of this user turn pointing at an earlier message, everything else untouched. */
+        public History withQuote(QuotedMessage value) {
+            return new History(role, content, screenAttached, attachmentPaths, attachmentKind,
+                    attachmentLabel, attachmentText, memoryUsage, memorySuggestionText,
+                    memorySuggestionCategory, stoppedRequestId, documents, richImages, replyRequestId,
+                    sourceUrls, value, details);
+        }
+
+        /** A copy of this assistant turn carrying what answered it, everything else untouched. */
+        public History withDetails(ResponseDetails value) {
+            return new History(role, content, screenAttached, attachmentPaths, attachmentKind,
+                    attachmentLabel, attachmentText, memoryUsage, memorySuggestionText,
+                    memorySuggestionCategory, stoppedRequestId, documents, richImages, replyRequestId,
+                    sourceUrls, quote, value);
+        }
+
+        /** Whether this message has a picture to draw. */
+        public boolean hasRichImages() { return !richImages.isEmpty(); }
+
+        /** How many stored images this turn carries. */
+        public int attachmentCount() { return attachmentPaths.size(); }
+    }
+
+    private AssistantClient() {}
+
+    public static void send(Context context, String prompt, String screenText, Bitmap screenshot, List<History> history, Callback cb) {
+        send(context, prompt, screenText, screenshot, history, AiSelections.globalDefault(context), cb);
+    }
+
+    public static void send(Context context, String prompt, String screenText, Bitmap screenshot, List<History> history,
+                            AiSelection selection, Callback cb) {
+        send(context, prompt, screenText, screenshot, history, selection, false, cb);
+    }
+
+    public static void send(Context context, String prompt, String screenText, Bitmap screenshot, List<History> history,
+                            AiSelection selection, boolean explicitAttachment, Callback cb) {
+        send(context, prompt, screenText, screenshot, history, selection,
+                explicitAttachment, "", cb);
+    }
+
+    public static void send(Context context, String prompt, String screenText, Bitmap screenshot, List<History> history,
+                            AiSelection selection, boolean explicitAttachment,
+                            String trustedTaskContext, Callback cb) {
+        send(context, prompt, screenText, screenshot, history, selection,
+                explicitAttachment, trustedTaskContext, () -> false, cb);
+    }
+
+    public static void send(Context context, String prompt, String screenText, Bitmap screenshot, List<History> history,
+                            AiSelection selection, boolean explicitAttachment,
+                            String trustedTaskContext, java.util.function.BooleanSupplier cancelled,
+                            Callback cb) {
+        send(context, prompt, screenText,
+                screenshot == null ? java.util.Collections.emptyList()
+                        : java.util.Collections.singletonList(screenshot),
+                history, selection, explicitAttachment, trustedTaskContext, cancelled, cb);
+    }
+
+    /**
+     * The full entry point: a turn carrying any number of images, in the user's order.
+     *
+     * <p>Every other {@code send} funnels here, so a one-image turn is simply the one-element case
+     * and the deterministic routers, and memory selection above the provider see one
+     * pipeline rather than two.
+     */
+    public static void send(Context context, String prompt, String screenText, List<Bitmap> images,
+                            List<History> history, AiSelection selection,
+                            boolean explicitAttachment, String trustedTaskContext,
+                            java.util.function.BooleanSupplier cancelled, Callback callback) {
+        send(context, prompt, screenText, images, history, selection, explicitAttachment,
+                trustedTaskContext, KeptContext.Prepared.NONE, cancelled, callback);
+    }
+
+    /**
+     * The same, with what the user kept in this chat (0.8.3.0-beta.3+). Kept context reaches only
+     * a provider; the deterministic local routers below answer from the prompt alone, as before.
+     */
+    public static void send(Context context, String prompt, String screenText, List<Bitmap> images,
+                            List<History> history, AiSelection selection,
+                            boolean explicitAttachment, String trustedTaskContext,
+                            KeptContext.Prepared kept,
+                            java.util.function.BooleanSupplier cancelled, Callback callback) {
+        send(context, prompt, screenText, images, history, selection, explicitAttachment,
+                trustedTaskContext, kept, cancelled, Routing.EXPLICIT, callback);
+    }
+
+    /**
+     * How one turn's selection was arrived at (0.8.3.0-beta.5+). An explicit turn is the user's own
+     * choice. An Auto turn arrives here already routed to an exact selection; it does not count as
+     * the user choosing that model, so it never enters Recents. An Auto turn that could not be
+     * routed carries the router's explanation instead, and no provider is asked anything.
+     */
+    static final class Routing {
+        static final Routing EXPLICIT = new Routing(false, "");
+
+        final boolean auto;
+        final String error;
+
+        Routing(boolean auto, String error) {
+            this.auto = auto;
+            this.error = error == null ? "" : error;
+        }
+
+        static Routing of(PendingRequestStore.Item item) {
+            if (item == null || item.route == null) return EXPLICIT;
+            return new Routing(true, item.route.error);
+        }
+    }
+
+    /** The full entry point: the same, with how the turn's selection was arrived at. */
+    static void send(Context context, String prompt, String screenText, List<Bitmap> images,
+                     List<History> history, AiSelection selection,
+                     boolean explicitAttachment, String trustedTaskContext,
+                     KeptContext.Prepared kept,
+                     java.util.function.BooleanSupplier cancelled, Routing routing,
+                     Callback callback) {
+        // Every answer in Orbit leaves through this callback - the deterministic routers below,
+        // Orbit Local, and whichever cloud provider is active - so this is where the reply's prose
+        // is checked against what has actually been done. A protected dial that is about to be put
+        // to the user for confirmation cannot leave here described as though it already happened.
+        final Callback cb = ActionNarration.guard(callback);
+        final Bitmap screenshot = images == null || images.isEmpty() ? null : images.get(0);
+        final List<Bitmap> requestImages = images == null
+                ? java.util.Collections.emptyList() : images;
+        // Explicit Orbit Memory commands stay local, inspectable, and instant.
+        AssistantReply memory = MemoryCommandRouter.tryHandle(context, prompt, history);
+        if (memory != null) {
+            cb.onSuccess(memory);
+            return;
+        }
+
+        // Saved routines are local, deterministic Action Engine plans. Resolve them
+        // before generic device commands or the network-backed assistant.
+        AssistantReply routine = RoutineCommandRouter.tryHandle(context, prompt);
+        if (routine != null) {
+            cb.onSuccess(routine);
+            return;
+        }
+
+        // A question about a device state has to be resolved before the command parser sees it.
+        // "Is Do Not Disturb on?" contains the words LocalCommandRouter treats as an instruction,
+        // and answering it by switching DND on and reporting that would be exactly wrong. The
+        // recognizer is deliberately the narrowest in the pipeline - question shape, a state Orbit
+        // can actually read, and no verb that would change anything - so every phrasing that is an
+        // instruction still falls straight through to the router below.
+        AssistantReply status = DeviceStatusRouter.tryHandle(context, prompt);
+        if (status != null) {
+            DiagnosticStore.recordUtilityRoute(context, "device-status");
+            cb.onSuccess(status);
+            return;
+        }
+
+        // Obvious phone commands stay instant and offline regardless of AI provider.
+        AssistantReply local = LocalCommandRouter.tryHandle(context, prompt);
+        if (local != null) {
+            DiagnosticStore.recordUtilityRoute(context, "device-command");
+            cb.onSuccess(local);
+            return;
+        }
+
+        NotificationQueryHelper.Prepared notification =
+                NotificationQueryHelper.prepare(context, prompt);
+        if (notification.recognized && notification.localReply != null) {
+            cb.onSuccess(notification.localReply);
+            return;
+        }
+        String notificationContext = notification.context;
+
+        // User-defined phrases are exact local aliases for saved Routines. Core
+        // memory, explicit Routine syntax, device commands, and local notification
+        // queries intentionally retain priority.
+        AssistantReply customCommand = CustomCommandRouter.tryHandle(context, prompt);
+        if (customCommand != null) {
+            cb.onSuccess(customCommand);
+            return;
+        }
+
+        // Kitchen arithmetic is arithmetic: a conversion or a scaled quantity has one right
+        // answer, so Orbit gives it itself rather than paying a round trip to whichever provider
+        // is active. The router is deliberately narrow and hands anything needing judgement -
+        // substitutions, technique, food safety - straight through to the provider below.
+        AssistantReply kitchen = KitchenMathRouter.tryHandle(context, prompt);
+        if (kitchen != null) {
+            DiagnosticStore.recordUtilityRoute(context, "kitchen");
+            cb.onSuccess(kitchen);
+            return;
+        }
+
+        // Ordinary arithmetic and everyday unit conversion, on the same principle as the kitchen
+        // router above and after it, so cooking keeps its own presentation rules. Both are pure
+        // functions of the text, both are exact, and both work with no provider and no network.
+        AssistantReply calculated = CalculatorRouter.tryHandle(context, prompt);
+        if (calculated != null) {
+            DiagnosticStore.recordUtilityRoute(context, "calculator");
+            cb.onSuccess(calculated);
+            return;
+        }
+
+        AssistantReply converted = UnitConversionRouter.tryHandle(context, prompt);
+        if (converted != null) {
+            DiagnosticStore.recordUtilityRoute(context, "conversion");
+            cb.onSuccess(converted);
+            return;
+        }
+
+        final String resolvedNotificationContext = notificationContext;
+        final Runnable continueToProvider = () -> sendToProvider(context, prompt, screenText,
+                requestImages, history, selection, explicitAttachment, trustedTaskContext,
+                kept,
+                cancelled, resolvedNotificationContext, routing, cb);
+
+        // The last stop before the network. When Orbit Local's action model is installed and
+        // enabled, and the message already reads as an instruction about something Orbit can
+        // control, the phone gets one attempt at it: the model proposes a normalized action, Orbit
+        // validates it, and the shared executor runs it. Every other outcome - a refusal, malformed
+        // output, a model failure, a timeout - continues to the provider exactly as before, so this
+        // can add an answer and can never take one away.
+        if (OrbitLocalActionRouter.shouldTry(context, prompt)) {
+            OrbitLocalActionRouter.handle(context, prompt, cb, continueToProvider);
+            return;
+        }
+        continueToProvider.run();
+    }
+
+    /**
+     * Everything from memory selection to the active provider.
+     *
+     * <p>Split out of {@link #send} so the Orbit Local action attempt above has something to hand
+     * the request on to. Nothing about it changed when it moved: this is the same provider path,
+     * reached either directly or after the on-device action model declined.
+     */
+    private static void sendToProvider(Context context, String prompt, String screenText,
+                                       List<Bitmap> images, List<History> history,
+                                       AiSelection selection, boolean explicitAttachment,
+                                       String trustedTaskContext,
+                                       KeptContext.Prepared kept,
+                                       java.util.function.BooleanSupplier cancelled,
+                                       String notificationContext, Routing routing, Callback cb) {
+        final Bitmap screenshot = images == null || images.isEmpty() ? null : images.get(0);
+        final MemoryStore.Selection memorySelection =
+                MemoryStore.select(context, prompt, screenText, history);
+        final MemoryStore.Suggestion memorySuggestion =
+                MemoryStore.suggest(context, prompt);
+        final Callback responseCallback = decorateMemoryMetadata(
+                cb, memorySelection, memorySuggestion);
+
+        // Resolved once, here, and then sent as it is. There is no routing here: the model the user
+        // selected, or the one Auto chose when the request was queued, is the model this turn goes
+        // to. An Auto selection that reaches this point unrouted is refused rather than guessed at,
+        // so nothing can ever be sent to a provider nobody chose.
+        final AiSelection resolved = AiSelections.resolve(selection);
+        if (resolved.isAuto()) {
+            cb.onError(routing != null && !routing.error.isEmpty() ? routing.error
+                    : "Auto did not choose a model for this request." + SmartRouter.HINT);
+            return;
+        }
+        // A background worker can start in a fresh process: the last-known-good provider catalogs
+        // are read first, so a model only the live catalog lists is not mistaken for a missing one.
+        ProviderCatalogRepository.loadCached(context);
+        AiModelSpec selectedModel = OrbitModelCatalog.spec(resolved.provider, resolved.model);
+        if (selectedModel == null || !selectedModel.selectable()) {
+            cb.onError(OrbitModelCatalog.unavailableMessage(resolved.model));
+            return;
+        }
+        // Extracted document text is still valid context even when a model has no native file or
+        // image input. Only refuse a genuinely image-only turn before any provider dispatch.
+        if (!Prefs.PROVIDER_LOCAL.equals(resolved.provider) && !selectedModel.vision
+                && images != null && !images.isEmpty()
+                && (screenText == null || screenText.trim().isEmpty())) {
+            cb.onError(selectedModel.displayName
+                    + " cannot read images. Choose a vision-capable model or remove the image.");
+            return;
+        }
+        // Only a validated ordinary conversation dispatch the user chose explicitly records Recents.
+        // Titles, summaries, catalog jobs, unsupported attachment attempts, Smart Vault completions
+        // and Auto-routed turns never do.
+        if (routing == null || !routing.auto) ModelLibraryStore.recordRecent(context, resolved);
+
+        // Thinking updates are decided once, here, and then travel with the request. Reading the
+        // preference again inside a provider would let a setting change mid-flight alter a turn
+        // that had already started.
+        final boolean thinkingUpdates = Prefs.thinkingUpdates(context);
+        if (thinkingUpdates) {
+            // The first thing Orbit can honestly say. Screen context is claimed only when this
+            // request genuinely carries it, so the line describes the request that was actually
+            // built rather than the setting that might have allowed one.
+            boolean usingScreen = (Prefs.screenContext(context) || explicitAttachment)
+                    && screenText != null && !screenText.trim().isEmpty();
+            responseCallback.onThinking(ThinkingUpdate.progress(usingScreen
+                    ? ThinkingUpdate.Stage.SCREEN_CONTEXT : ThinkingUpdate.Stage.WORKING));
+        }
+
+        // Everything above is Orbit's provider-independent pipeline. From here the active
+        // provider owns the request; its own send() reports readiness problems (sign-in,
+        // missing local model, missing relay) through the callback in plain language.
+        AiRequest request = AiRequest.builder()
+                .prompt(prompt)
+                .screenText(screenText)
+                .screenshot(screenshot)
+                .images(images)
+                .history(history)
+                .selection(resolved)
+                .explicitAttachment(explicitAttachment)
+                .notificationContext(notificationContext)
+                .memoryContext(memorySelection.promptContext)
+                .trustedTaskContext(trustedTaskContext)
+                .keptContext(kept)
+                .cancelled(cancelled)
+                .thinkingUpdates(thinkingUpdates)
+                .build();
+        AiProviders.forSelection(context, resolved).send(context, request, responseCallback);
+    }
+
+    /**
+     * One focused planning request that goes straight to the configured provider.
+     *
+     * <p>Deliberately not {@link #send}: that resolves saved routines, device commands, custom
+     * commands, and notification queries first, so a description such as "turn on the flashlight"
+     * would be executed as a command instead of planned, and it also selects Memory to add to the
+     * prompt. This path carries only the planning instruction — no history, screen text,
+     * screenshot, notifications, or memories — and returns the model's raw reply for the caller to
+     * validate.
+     */
+    /**
+     * Receives a planning response as raw provider text.
+     *
+     * <p>Deliberately not {@link Callback}: the chat path parses a reply into Orbit's
+     * {@code {"text","actions"}} envelope, which discards any other JSON shape. A planner returns
+     * its own schema, so the planning path must hand back the complete response untouched and let
+     * {@link RoutinePlanResponse} decide what it is.
+     */
+    public interface PlanCallback {
+        void onText(String rawResponse, String providerLabel);
+        void onError(String message);
+    }
+
+    /** Planning runs with the default selection: the one new chats and the assistant use. */
+    static AiSelection planSelection(Context context) {
+        return AiSelections.globalDefault(context);
+    }
+
+    public static void plan(Context context, String planningPrompt, PlanCallback cb) {
+        if (context == null || cb == null) return;
+        if (planningPrompt == null || planningPrompt.trim().isEmpty()) {
+            cb.onError("Describe the routine you want Orbit to build.");
+            return;
+        }
+        AiSelection selection = planSelection(context);
+        AiProviders.forSelection(context, selection).plan(context, planningPrompt, selection, cb);
+    }
+
+    private static Callback decorateMemoryMetadata(Callback downstream,
+                                                   MemoryStore.Selection selection,
+                                                   MemoryStore.Suggestion suggestion) {
+        final String usage = selection == null ? "" : selection.usageText;
+        final String suggestedText = suggestion == null ? "" : suggestion.text;
+        final String suggestedCategory = suggestion == null ? "" : suggestion.category;
+
+        return new Callback() {
+            @Override public void onDelta(String text) {
+                downstream.onDelta(text);
+            }
+
+            @Override public void onThinking(ThinkingUpdate update) {
+                // Passed straight through. Memory metadata belongs to the answer; a status line
+                // is not an answer and is never decorated, stored, or remembered.
+                downstream.onThinking(update);
+            }
+
+            @Override public void onSuccess(AssistantReply reply) {
+                if (reply == null) {
+                    downstream.onSuccess(new AssistantReply("", new java.util.ArrayList<>(),
+                            usage, suggestedText, suggestedCategory));
+                    return;
+                }
+                // The cited pages travel with the reply the same way its actions do: this wrapper
+                // adds memory metadata and must not quietly drop provenance on the way past.
+                downstream.onSuccess(new AssistantReply(reply.text, reply.actions,
+                        usage, suggestedText, suggestedCategory, reply.sourceUrls, reply.details));
+            }
+
+            @Override public void onError(String message) {
+                downstream.onError(message);
+            }
+        };
+    }
+
+}

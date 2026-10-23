@@ -1,0 +1,336 @@
+package com.orbit.assistant;
+
+import android.content.Context;
+import android.security.keystore.KeyGenParameterSpec;
+import android.security.keystore.KeyProperties;
+import android.util.Base64;
+
+import org.json.JSONObject;
+
+import java.nio.charset.StandardCharsets;
+import java.security.KeyStore;
+import javax.crypto.Cipher;
+import javax.crypto.KeyGenerator;
+import javax.crypto.SecretKey;
+import javax.crypto.spec.GCMParameterSpec;
+
+public final class SecureStore {
+    private static final String STORE = "AndroidKeyStore";
+    private static final String RELAY_ALIAS = "orbit_relay_secret_v1";
+    private static final String RELAY_ENC = "backend_token_enc";
+    private static final String RELAY_IV = "backend_token_iv";
+
+    private static final String CHATGPT_ALIAS = "orbit_chatgpt_oauth_v1";
+    private static final String CHATGPT_ENC = "chatgpt_oauth_enc";
+    private static final String CHATGPT_IV = "chatgpt_oauth_iv";
+    private static final String CHATGPT_PENDING_ENC = "chatgpt_pending_auth_enc";
+    private static final String CHATGPT_PENDING_IV = "chatgpt_pending_auth_iv";
+
+    private static final String OPENROUTER_ALIAS = "orbit_openrouter_key_v1";
+    private static final String OPENROUTER_ENC = "openrouter_key_enc";
+    private static final String OPENROUTER_IV = "openrouter_key_iv";
+
+    private static final String ANTHROPIC_ALIAS = "orbit_anthropic_key_v1";
+    private static final String ANTHROPIC_ENC = "anthropic_key_enc";
+    private static final String ANTHROPIC_IV = "anthropic_key_iv";
+    private static final String XAI_ALIAS = "orbit_xai_key_v1";
+    private static final String XAI_ENC = "xai_key_enc";
+    private static final String XAI_IV = "xai_key_iv";
+
+    private SecureStore() {}
+
+    public static void saveRelayToken(Context c, String value) {
+        try {
+            if (value == null || value.isEmpty()) {
+                Prefs.get(c).edit().remove(RELAY_ENC).remove(RELAY_IV).remove(Prefs.BACKEND_TOKEN).apply();
+                return;
+            }
+            if (!encrypt(c, RELAY_ALIAS, RELAY_ENC, RELAY_IV, value)) {
+                throw new IllegalStateException("Could not persist encrypted relay credentials");
+            }
+            Prefs.get(c).edit().remove(Prefs.BACKEND_TOKEN).apply();
+        } catch (Exception e) {
+            // Compatibility fallback only for the optional relay token. The OpenAI API key is never stored here.
+            Prefs.get(c).edit().putString(Prefs.BACKEND_TOKEN, value == null ? "" : value).apply();
+        }
+    }
+
+    public static String loadRelayToken(Context c) {
+        try {
+            String value = decrypt(c, RELAY_ALIAS, RELAY_ENC, RELAY_IV);
+            if (!value.isEmpty()) return value;
+        } catch (Exception ignored) {}
+        return Prefs.get(c).getString(Prefs.BACKEND_TOKEN, "").trim();
+    }
+
+    /**
+     * Stores the OpenRouter API key, hardware-encrypted only. Unlike the optional relay token,
+     * there is deliberately no plaintext-preferences fallback: if the Android Keystore cannot
+     * hold the key, saving fails visibly instead of degrading secrecy. The key is excluded from
+     * backups and never logged or exported.
+     */
+    public static boolean saveOpenRouterKey(Context c, String value) {
+        return saveOpenRouterKey(c, value, OPENROUTER_SOURCE_MANUAL);
+    }
+
+    /** The key came from Sign in with OpenRouter (browser OAuth with PKCE). */
+    public static final String OPENROUTER_SOURCE_OAUTH = "oauth";
+    /** The key was typed or pasted under Use API key instead. Also every key saved before 0.8.3.0-beta.6. */
+    public static final String OPENROUTER_SOURCE_MANUAL = "manual";
+    /** Non-secret: how the saved key arrived. Never backed up, cleared with the key. */
+    private static final String OPENROUTER_SOURCE = "openrouter_key_source";
+
+    /**
+     * Stores an OpenRouter key and records how it arrived. Both sign-in and the manual fallback end
+     * here, in the same encrypted slot, so replacing one with the other simply overwrites it.
+     * Saving never turns on Auto: a new key leaves OpenRouter's Auto permission exactly as it was,
+     * which after any removal is off.
+     */
+    public static boolean saveOpenRouterKey(Context c, String value, String source) {
+        try {
+            if (value == null || value.trim().isEmpty()) {
+                Prefs.get(c).edit().remove(OPENROUTER_ENC).remove(OPENROUTER_IV)
+                        .remove(OPENROUTER_SOURCE).apply();
+                return true;
+            }
+            boolean saved = encrypt(c, OPENROUTER_ALIAS, OPENROUTER_ENC, OPENROUTER_IV, value.trim());
+            if (saved) {
+                Prefs.get(c).edit().putString(OPENROUTER_SOURCE,
+                        OPENROUTER_SOURCE_OAUTH.equals(source) ? OPENROUTER_SOURCE_OAUTH
+                                : OPENROUTER_SOURCE_MANUAL).apply();
+            }
+            return saved;
+        } catch (Exception e) {
+            return false;
+        }
+    }
+
+    /**
+     * How the saved key arrived: {@link #OPENROUTER_SOURCE_OAUTH}, {@link #OPENROUTER_SOURCE_MANUAL},
+     * or "" when there is no key. A key saved before the source was recorded counts as manual.
+     */
+    public static String openRouterKeySource(Context c) {
+        if (!hasOpenRouterKey(c)) return "";
+        String source = Prefs.get(c).getString(OPENROUTER_SOURCE, "");
+        return OPENROUTER_SOURCE_OAUTH.equals(source) ? OPENROUTER_SOURCE_OAUTH
+                : OPENROUTER_SOURCE_MANUAL;
+    }
+
+    public static String loadOpenRouterKey(Context c) {
+        try {
+            return decrypt(c, OPENROUTER_ALIAS, OPENROUTER_ENC, OPENROUTER_IV);
+        } catch (Exception e) {
+            return "";
+        }
+    }
+
+    public static boolean hasOpenRouterKey(Context c) {
+        return !loadOpenRouterKey(c).isEmpty();
+    }
+
+    /**
+     * Disconnect: the key and its source go, and so does OpenRouter's Auto permission, so a later
+     * connection starts with Auto off. Chats, Favorites and answers that used OpenRouter stay.
+     */
+    public static void clearOpenRouterKey(Context c) {
+        Prefs.get(c).edit().remove(OPENROUTER_ENC).remove(OPENROUTER_IV)
+                .remove(OPENROUTER_SOURCE).apply();
+        AutoPermissions.revokeOnCredentialRemoval(c, Prefs.PROVIDER_OPENROUTER);
+    }
+
+    public static boolean saveAnthropicKey(Context c, String value) {
+        return saveApiKey(c, ANTHROPIC_ALIAS, ANTHROPIC_ENC, ANTHROPIC_IV, value);
+    }
+
+    public static String loadAnthropicKey(Context c) {
+        return loadApiKey(c, ANTHROPIC_ALIAS, ANTHROPIC_ENC, ANTHROPIC_IV);
+    }
+
+    public static boolean hasAnthropicKey(Context c) { return !loadAnthropicKey(c).isEmpty(); }
+
+    public static void clearAnthropicKey(Context c) {
+        Prefs.get(c).edit().remove(ANTHROPIC_ENC).remove(ANTHROPIC_IV).apply();
+        AutoPermissions.revokeOnCredentialRemoval(c, Prefs.PROVIDER_ANTHROPIC);
+    }
+
+    public static boolean saveXaiKey(Context c, String value) {
+        return saveApiKey(c, XAI_ALIAS, XAI_ENC, XAI_IV, value);
+    }
+
+    public static String loadXaiKey(Context c) {
+        return loadApiKey(c, XAI_ALIAS, XAI_ENC, XAI_IV);
+    }
+
+    public static boolean hasXaiKey(Context c) { return !loadXaiKey(c).isEmpty(); }
+
+    public static void clearXaiKey(Context c) {
+        Prefs.get(c).edit().remove(XAI_ENC).remove(XAI_IV).apply();
+        AutoPermissions.revokeOnCredentialRemoval(c, Prefs.PROVIDER_XAI);
+    }
+
+    private static boolean saveApiKey(Context c, String alias, String enc, String iv, String value) {
+        try {
+            if (value == null || value.trim().isEmpty()) {
+                Prefs.get(c).edit().remove(enc).remove(iv).apply();
+                return true;
+            }
+            return encrypt(c, alias, enc, iv, value.trim());
+        } catch (Exception e) {
+            return false;
+        }
+    }
+
+    private static String loadApiKey(Context c, String alias, String enc, String iv) {
+        try { return decrypt(c, alias, enc, iv); }
+        catch (Exception e) { return ""; }
+    }
+
+    public static boolean saveChatGptTokens(Context c, String idToken, String accessToken,
+                                             String refreshToken, String accountId) {
+        try {
+            JSONObject o = new JSONObject();
+            o.put("id_token", idToken == null ? "" : idToken);
+            o.put("access_token", accessToken == null ? "" : accessToken);
+            o.put("refresh_token", refreshToken == null ? "" : refreshToken);
+            o.put("account_id", accountId == null ? "" : accountId);
+            // When this session was last issued, so ChatGptAuth can renew an old one before it goes stale.
+            o.put("saved_at", System.currentTimeMillis());
+            return encrypt(c, CHATGPT_ALIAS, CHATGPT_ENC, CHATGPT_IV, o.toString());
+        } catch (Exception e) {
+            clearChatGpt(c);
+            return false;
+        }
+    }
+
+    public static ChatGptTokens loadChatGptTokens(Context c) {
+        try {
+            String raw = decrypt(c, CHATGPT_ALIAS, CHATGPT_ENC, CHATGPT_IV);
+            if (raw.isEmpty()) return null;
+            JSONObject o = new JSONObject(raw);
+            String access = o.optString("access_token", "");
+            String refresh = o.optString("refresh_token", "");
+            if (access.isEmpty() || refresh.isEmpty()) return null;
+            return new ChatGptTokens(
+                    o.optString("id_token", ""), access, refresh, o.optString("account_id", ""),
+                    o.optLong("saved_at", 0L));
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+    public static void clearChatGpt(Context c) {
+        Prefs.get(c).edit().remove(CHATGPT_ENC).remove(CHATGPT_IV).commit();
+    }
+
+    public static boolean savePendingChatGptLogin(Context c, String deviceAuthId, String userCode,
+                                                   long intervalSeconds, long expiresAtMs) {
+        try {
+            JSONObject o = new JSONObject();
+            o.put("device_auth_id", deviceAuthId == null ? "" : deviceAuthId);
+            o.put("user_code", userCode == null ? "" : userCode);
+            o.put("interval_seconds", Math.max(1L, intervalSeconds));
+            o.put("expires_at_ms", expiresAtMs);
+            if (deviceAuthId == null || deviceAuthId.isEmpty() || userCode == null || userCode.isEmpty()) {
+                return false;
+            }
+            boolean saved = encrypt(
+                    c, CHATGPT_ALIAS, CHATGPT_PENDING_ENC, CHATGPT_PENDING_IV, o.toString());
+            if (!saved) clearPendingChatGptLogin(c);
+            return saved;
+        } catch (Exception e) {
+            clearPendingChatGptLogin(c);
+            return false;
+        }
+    }
+
+    public static PendingChatGptLogin loadPendingChatGptLogin(Context c) {
+        try {
+            String raw = decrypt(c, CHATGPT_ALIAS, CHATGPT_PENDING_ENC, CHATGPT_PENDING_IV);
+            if (raw.isEmpty()) return null;
+            JSONObject o = new JSONObject(raw);
+            String deviceAuthId = o.optString("device_auth_id", "");
+            String userCode = o.optString("user_code", "");
+            long intervalSeconds = Math.max(1L, o.optLong("interval_seconds", 5L));
+            long expiresAtMs = o.optLong("expires_at_ms", 0L);
+            if (deviceAuthId.isEmpty() || userCode.isEmpty() || expiresAtMs <= System.currentTimeMillis()) {
+                clearPendingChatGptLogin(c);
+                return null;
+            }
+            return new PendingChatGptLogin(deviceAuthId, userCode, intervalSeconds, expiresAtMs);
+        } catch (Exception e) {
+            clearPendingChatGptLogin(c);
+            return null;
+        }
+    }
+
+    public static void clearPendingChatGptLogin(Context c) {
+        Prefs.get(c).edit().remove(CHATGPT_PENDING_ENC).remove(CHATGPT_PENDING_IV).commit();
+    }
+
+    private static boolean encrypt(Context c, String alias, String encKey, String ivKey,
+                                   String value) throws Exception {
+        SecretKey key = getOrCreateKey(alias);
+        Cipher cipher = Cipher.getInstance("AES/GCM/NoPadding");
+        cipher.init(Cipher.ENCRYPT_MODE, key);
+        byte[] encrypted = cipher.doFinal(value.getBytes(StandardCharsets.UTF_8));
+        return Prefs.get(c).edit()
+                .putString(encKey, Base64.encodeToString(encrypted, Base64.NO_WRAP))
+                .putString(ivKey, Base64.encodeToString(cipher.getIV(), Base64.NO_WRAP))
+                .commit();
+    }
+
+    private static String decrypt(Context c, String alias, String encKey, String ivKey) throws Exception {
+        String enc = Prefs.get(c).getString(encKey, "");
+        String iv = Prefs.get(c).getString(ivKey, "");
+        if (enc.isEmpty() || iv.isEmpty()) return "";
+        KeyStore ks = KeyStore.getInstance(STORE);
+        ks.load(null);
+        SecretKey key = (SecretKey) ks.getKey(alias, null);
+        if (key == null) return "";
+        Cipher cipher = Cipher.getInstance("AES/GCM/NoPadding");
+        cipher.init(Cipher.DECRYPT_MODE, key, new GCMParameterSpec(128, Base64.decode(iv, Base64.NO_WRAP)));
+        return new String(cipher.doFinal(Base64.decode(enc, Base64.NO_WRAP)), StandardCharsets.UTF_8);
+    }
+
+    private static synchronized SecretKey getOrCreateKey(String alias) throws Exception {
+        KeyStore ks = KeyStore.getInstance(STORE);
+        ks.load(null);
+        if (ks.containsAlias(alias)) return (SecretKey) ks.getKey(alias, null);
+        KeyGenerator generator = KeyGenerator.getInstance(KeyProperties.KEY_ALGORITHM_AES, STORE);
+        generator.init(new KeyGenParameterSpec.Builder(alias,
+                KeyProperties.PURPOSE_ENCRYPT | KeyProperties.PURPOSE_DECRYPT)
+                .setBlockModes(KeyProperties.BLOCK_MODE_GCM)
+                .setEncryptionPaddings(KeyProperties.ENCRYPTION_PADDING_NONE)
+                .setKeySize(256)
+                .build());
+        return generator.generateKey();
+    }
+
+    public static final class ChatGptTokens {
+        public final String idToken;
+        public final String accessToken;
+        public final String refreshToken;
+        public final String accountId;
+        /** When these were issued; 0 for a session saved before 0.8.4.1. */
+        public final long savedAtMs;
+        ChatGptTokens(String id, String access, String refresh, String account, long savedAt) {
+            idToken = id; accessToken = access; refreshToken = refresh; accountId = account;
+            savedAtMs = savedAt;
+        }
+    }
+
+    public static final class PendingChatGptLogin {
+        public final String deviceAuthId;
+        public final String userCode;
+        public final long intervalSeconds;
+        public final long expiresAtMs;
+
+        PendingChatGptLogin(String deviceAuthId, String userCode, long intervalSeconds,
+                            long expiresAtMs) {
+            this.deviceAuthId = deviceAuthId;
+            this.userCode = userCode;
+            this.intervalSeconds = intervalSeconds;
+            this.expiresAtMs = expiresAtMs;
+        }
+    }
+}

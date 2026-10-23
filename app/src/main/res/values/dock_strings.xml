@@ -1,0 +1,10 @@
+<resources>
+    <string name="dock_hint">Ask Orbit…</string>
+    <string name="dock_voice_conversation">Voice conversation</string>
+    <string name="dock_stop_voice_conversation">End voice conversation</string>
+    <string name="dock_expand">Expand conversation</string>
+    <string name="dock_collapse">Collapse conversation</string>
+    <string name="dock_attachments">Attachments</string>
+    <string name="dock_use_screen">Use screen</string>
+    <string name="dock_screen_attached">Screen attached</string>
+</resources>

@@ -1,0 +1,102 @@
+{
+  "deviceTarget": {
+    "model": "OnePlus 13s",
+    "soc": "Snapdragon 8 Elite",
+    "ramGB": 16,
+    "os": "OxygenOS 15.0",
+    "android": 15,
+    "source": "User supplied device information and screenshots"
+  },
+  "release": "zh-CN OnePlus Dock fix2",
+  "versionCode": 819,
+  "build": "Release build and both lintVitalRelease tasks passed",
+  "artifacts": {
+    "main": {
+      "package": "com.orbit.assistant",
+      "versionCode": 819,
+      "versionName": "0.8.4.1",
+      "size": 39927013,
+      "sha256": "7fc7f1bdfd5a0b624f1dd90749dfd166b2d431790c33ba3bab07ee918f6eadee",
+      "certificateSha256": "e5e6f7745d4e088ee36511f762491e7bab7ea887d4dfd4a41ff993ee06ca4f0f"
+    },
+    "component": {
+      "package": "com.orbit.assistant.local",
+      "versionCode": 819,
+      "versionName": "0.8.4.1",
+      "size": 35425592,
+      "sha256": "00c05c527d9d9567d7d0633337817403509e817b4c19c837dd2c386ebd96d72f",
+      "certificateSha256": "e5e6f7745d4e088ee36511f762491e7bab7ea887d4dfd4a41ff993ee06ca4f0f"
+    },
+    "embeddedComponent": "identical to signed component; all manifest fields verified"
+  },
+  "upgradeFromFix1": {
+    "oldVersionCode": 818,
+    "newVersionCode": 819,
+    "oldCertificateSha256": "e5e6f7745d4e088ee36511f762491e7bab7ea887d4dfd4a41ff993ee06ca4f0f",
+    "sameSigningIdentity": true
+  },
+  "tests": {
+    "app": {
+      "suites": 33,
+      "tests": 998,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "classes": [
+        "com.orbit.assistant.OverlayStyleTest",
+        "com.orbit.assistant.VoiceFollowUpOwnershipTest",
+        "com.orbit.assistant.OrbitLocalVisibilityTest",
+        "com.orbit.assistant.OverlayFloatTest",
+        "com.orbit.assistant.ReleaseModularityTest",
+        "com.orbit.assistant.OrbitLocalRemovalTest",
+        "com.orbit.assistant.AboutLinksTest",
+        "com.orbit.assistant.OrbitVersionTest",
+        "com.orbit.assistant.OverlayCustomizationTest",
+        "com.orbit.assistant.VoiceMaturityTest",
+        "com.orbit.assistant.ComposerImeStateTest",
+        "com.orbit.assistant.VoiceHandoffTest",
+        "com.orbit.assistant.ComposerTraceTest",
+        "com.orbit.assistant.OrbitLocalLiveProgressTest",
+        "com.orbit.assistant.OverlayDismissLifecycleTest",
+        "com.orbit.assistant.OrbitLocalStateTest",
+        "com.orbit.assistant.OverlayStretchTest",
+        "com.orbit.assistant.ChineseLocalizationTest",
+        "com.orbit.assistant.OverlayLaunchLifecycleTest",
+        "com.orbit.assistant.OverlayConversationControlTest",
+        "com.orbit.assistant.ComposerClearingTest",
+        "com.orbit.assistant.OrbitLocalTrustTest",
+        "com.orbit.assistant.OrbitLocalCapabilitiesTest",
+        "com.orbit.assistant.VoiceFollowUpPolicyTest",
+        "com.orbit.assistant.OrbitLocalProgressTest",
+        "com.orbit.assistant.OverlayAutoListenTest",
+        "com.orbit.assistant.ComposerVoiceStateTest",
+        "com.orbit.assistant.AssistantDockTest",
+        "com.orbit.assistant.OrbitLocalCacheTest",
+        "com.orbit.assistant.OrbitLocal2Test",
+        "com.orbit.assistant.OverlayStableUpgradeTest",
+        "com.orbit.assistant.OverlayLaunchTraceTest",
+        "com.orbit.assistant.ComposerFocusCoordinatorTest"
+      ]
+    },
+    "local": {
+      "suites": 4,
+      "tests": 122,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "classes": [
+        "com.orbit.assistant.local.ComponentModelStoreTest",
+        "com.orbit.assistant.local.ComponentDownloadStateTest",
+        "com.orbit.assistant.local.ComponentActionModelTest",
+        "com.orbit.assistant.local.ComponentWorkQueryTest"
+      ]
+    }
+  },
+  "resourceValidation": {
+    "pairedUiStrings": 2619,
+    "englishFallbacks": 3541,
+    "result": "passed"
+  },
+  "visualValidation": "Native Android/Robolectric API 35 view renders inspected in light and dark, collapsed and expanded. Pixel assertion checks that collapsed content paints no header on the desktop. Keyboard, gesture insets, landscape, font scaling, menus and draft/request preservation covered.",
+  "physicalDeviceValidation": "No physical OnePlus connected; on-device installation, microphone/TTS and real model inference remain to be confirmed."
+}

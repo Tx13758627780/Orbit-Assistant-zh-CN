@@ -1,0 +1,464 @@
+package com.orbit.assistant;
+
+import android.app.Activity;
+import android.content.Intent;
+import android.content.pm.ActivityInfo;
+import android.content.res.ColorStateList;
+import android.graphics.Bitmap;
+import android.graphics.Color;
+import android.graphics.drawable.Drawable;
+import android.os.Bundle;
+import android.view.Gravity;
+import android.view.HapticFeedbackConstants;
+import android.view.View;
+import android.view.ViewGroup;
+import android.view.Window;
+import android.widget.Button;
+import android.widget.LinearLayout;
+import android.widget.TextView;
+import android.widget.Toast;
+
+/** Shared native Crop + Mark up editor for overlay and full-chat screen attachments. */
+public final class ScreenSelectionActivity extends Activity {
+
+    /**
+     * The Vault control's label.
+     *
+     * <p>One word rather than the three every other Save to Vault in Orbit uses, and that is the
+     * whole point of it. Beta 3 gave this a full-width row of its own, which read correctly and
+     * cost an entire band of the screen; on a Galaxy S25 Ultra that band came out of the only
+     * thing this editor exists to show, which is the selection itself. The action is unchanged and
+     * still says exactly where the picture is going - the destination is written on the control,
+     * the verb is what the tap is - and it now shares one row with the two actions beside it.
+     */
+    static final String SAVE_TO_VAULT = "Vault";
+
+    /**
+     * How wide the compact Vault control is, in dp.
+     *
+     * <p>Fixed rather than weighted, so it takes what an icon and one short word need and gives
+     * every remaining pixel to the two actions that finish the editor. A third of the row would be
+     * the wrong answer twice over: it would say the three controls are equals when they are not,
+     * and it would shrink Use selection, which is the one somebody reaches for most.
+     */
+    static final int VAULT_ACTION_WIDTH_DP = 92;
+
+    private String sourcePath = "";
+    private String callbackToken = "";
+    private ScreenSelectionView editor;
+    private TextView instruction;
+    private Button cropButton;
+    private Button markupButton;
+    private Button undoButton;
+    private Button vaultButton;
+    private LinearLayout undoRow;
+    private boolean finished;
+    private boolean bridgeDeliveryPending;
+    private boolean bridgeFailurePending;
+    private Bitmap bridgeResult;
+    private boolean bridgePrecise;
+
+    @Override protected void onCreate(Bundle savedInstanceState) {
+        super.onCreate(savedInstanceState);
+        UiKit.syncTheme(this);
+        Intent intent = getIntent();
+        sourcePath = intent == null ? "" : intent.getStringExtra(
+                ScreenSelectionStore.EXTRA_SOURCE_PATH);
+        callbackToken = intent == null ? "" : intent.getStringExtra(
+                ScreenSelectionStore.EXTRA_CALLBACK_TOKEN);
+        if (sourcePath == null) sourcePath = "";
+        if (callbackToken == null) callbackToken = "";
+        Bitmap original = ScreenSelectionStore.load(this, sourcePath);
+        if (original == null) {
+            Toast.makeText(this, OrbitText.get(R.string.ui_orbit_could_not_open_this_screen_image_99a718, "Orbit could not open this screen image"), Toast.LENGTH_LONG).show();
+            if (callbackToken.isEmpty()) cancelAndFinish();
+            else failAndFinish();
+            return;
+        }
+
+        Window window = getWindow();
+        window.setStatusBarColor(UiKit.BG);
+        window.setNavigationBarColor(UiKit.BG);
+        View content = buildContent(original, savedInstanceState);
+        setContentView(content);
+        UiKit.applyActivityInsets(this, content, false);
+        UiKit.applyTypography(content);
+    }
+
+    private View buildContent(Bitmap original, Bundle savedState) {
+        LinearLayout root = new LinearLayout(this);
+        root.setOrientation(LinearLayout.VERTICAL);
+        // Deliberately the flat page colour rather than OrbitBackground: this is the backing of an
+        // image editor, not a themed page. A gradient or a glow behind a screenshot being cropped
+        // would be decoration competing with the thing the user is trying to look at, which is also
+        // why force-dark is turned off for the same surface on the next line.
+        root.setBackgroundColor(UiKit.BG);
+        root.setForceDarkAllowed(false);
+        root.setPadding(UiKit.dp(this, 12), UiKit.dp(this, 2),
+                UiKit.dp(this, 12), UiKit.dp(this, 2));
+
+        LinearLayout top = new LinearLayout(this);
+        top.setGravity(Gravity.CENTER_VERTICAL);
+        Button cancel = quietButton(OrbitText.get(R.string.ui_cancel_19766e, "Cancel"), OrbitText.get(R.string.ui_cancel_screen_selection_734801, "Cancel screen selection"));
+        cancel.setOnClickListener(v -> cancelAndFinish());
+        top.addView(cancel, new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT, UiKit.dp(this, 40)));
+        TextView title = UiKit.text(this, OrbitText.get(R.string.ui_screen_selection_583c1f, "Screen selection"), 17, UiKit.TEXT, true);
+        title.setGravity(Gravity.CENTER);
+        top.addView(title, new LinearLayout.LayoutParams(0,
+                ViewGroup.LayoutParams.WRAP_CONTENT, 1));
+        Button reset = quietButton(OrbitText.get(R.string.ui_reset_daee76, "Reset"), OrbitText.get(R.string.ui_reset_crop_and_markup_56778d, "Reset crop and markup"));
+        reset.setOnClickListener(v -> {
+            editor.reset();
+            selectTool(ScreenSelectionView.Tool.CROP, false);
+        });
+        top.addView(reset, new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT, UiKit.dp(this, 40)));
+        root.addView(top);
+
+        editor = new ScreenSelectionView(this);
+        editor.setOriginal(original);
+        editor.setListener(new ScreenSelectionView.Listener() {
+            @Override public void onStateChanged() { refreshControls(); }
+            @Override public void onCropEstablished() { performTick(); }
+        });
+        // Fit-center letterboxing is intentional for exact bitmap mapping. Blend
+        // that unused canvas into the page rather than showing raised gray bars.
+        editor.setBackground(UiKit.rounded(UiKit.BG, 18, this));
+        LinearLayout.LayoutParams editorLp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, 0, 1);
+        editorLp.setMargins(0, UiKit.dp(this, 1), 0, UiKit.dp(this, 1));
+        root.addView(editor, editorLp);
+
+        instruction = UiKit.text(this, OrbitText.get(R.string.ui_drag_to_select_an_area_cf38e5, "Drag to select an area"), 12, UiKit.MUTED, false);
+        instruction.setGravity(Gravity.CENTER);
+        LinearLayout.LayoutParams instructionLp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        instructionLp.setMargins(0, 0, 0, 0);
+        root.addView(instruction, instructionLp);
+
+        undoRow = new LinearLayout(this);
+        undoRow.setGravity(Gravity.END | Gravity.CENTER_VERTICAL);
+        undoButton = secondaryButton(OrbitText.get(R.string.ui_undo_a8283a, "Undo"), OrbitText.get(R.string.ui_undo_last_markup_stroke_777976, "Undo last markup stroke"));
+        undoButton.setOnClickListener(v -> editor.undoMarkup());
+        undoRow.addView(undoButton, new LinearLayout.LayoutParams(
+                UiKit.dp(this, 84), UiKit.dp(this, 34)));
+        root.addView(undoRow, new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+
+        LinearLayout tools = new LinearLayout(this);
+        tools.setGravity(Gravity.CENTER_VERTICAL);
+        tools.setPadding(UiKit.dp(this, 3), UiKit.dp(this, 3),
+                UiKit.dp(this, 3), UiKit.dp(this, 3));
+        tools.setBackground(UiKit.outlined(UiKit.SURFACE_2,
+                UiKit.withAlpha(UiKit.accent(this), 70), 17, this));
+        cropButton = toolButton(OrbitText.get(R.string.ui_crop_98caf7, "Crop"), OrbitText.get(R.string.ui_crop_tool_4a4fe7, "Crop tool"));
+        cropButton.setOnClickListener(v -> selectTool(ScreenSelectionView.Tool.CROP, true));
+        tools.addView(cropButton, new LinearLayout.LayoutParams(0, UiKit.dp(this, 44), 1));
+        markupButton = toolButton(OrbitText.get(R.string.ui_mark_up_f71acd, "Mark up"), OrbitText.get(R.string.ui_mark_up_tool_fefd89, "Mark up tool"));
+        markupButton.setOnClickListener(v -> selectTool(ScreenSelectionView.Tool.MARKUP, true));
+        LinearLayout.LayoutParams markupLp = new LinearLayout.LayoutParams(0,
+                UiKit.dp(this, 44), 1);
+        markupLp.setMargins(UiKit.dp(this, 3), 0, 0, 0);
+        tools.addView(markupButton, markupLp);
+        root.addView(tools, new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, UiKit.dp(this, 46)));
+
+        // One row of actions, not two. Crop and Mark up above are editor modes; these three are
+        // things to do with what has been made, and they belong on the same line.
+        //
+        // Vault is still a different kind of answer from the other two - Use selection and Use
+        // full screen both finish this editor and hand the picture to the message being written,
+        // while this one keeps the crop and leaves the user exactly where they were - which is why
+        // it is quiet, compact, and first rather than sharing their size and weight.
+        //
+        // Absent entirely while the Vault is switched off, and the two remaining controls simply
+        // take the width back. Screen Selection's ordinary path is untouched by that preference.
+        LinearLayout actions = new LinearLayout(this);
+        actions.setGravity(Gravity.CENTER_VERTICAL);
+        LinearLayout.LayoutParams actionsLp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        actionsLp.setMargins(0, UiKit.dp(this, 3), 0, 0);
+
+        vaultButton = compactVaultButton();
+        vaultButton.setOnClickListener(v -> saveSelectionToVault());
+        vaultButton.setVisibility(Prefs.vaultEnabled(this) ? View.VISIBLE : View.GONE);
+        actions.addView(vaultButton, new LinearLayout.LayoutParams(
+                UiKit.dp(this, VAULT_ACTION_WIDTH_DP), UiKit.dp(this, 46)));
+
+        Button full = secondaryButton(OrbitText.get(R.string.ui_use_full_screen_a4fee0, "Use full screen"), OrbitText.get(R.string.ui_use_full_screen_a4fee0, "Use full screen"));
+        full.setOnClickListener(v -> complete(true));
+        LinearLayout.LayoutParams fullLp = new LinearLayout.LayoutParams(0, UiKit.dp(this, 46), 1);
+        fullLp.setMargins(UiKit.dp(this, 8), 0, 0, 0);
+        actions.addView(full, fullLp);
+
+        Button use = primaryButton(OrbitText.get(R.string.ui_use_selection_f58bbe, "Use selection"), OrbitText.get(R.string.ui_use_screen_selection_874bde, "Use screen selection"));
+        use.setOnClickListener(v -> complete(false));
+        // A little more than an equal share, so the strongest action still reads as the strongest
+        // one now that it is sharing the row with two others rather than one.
+        LinearLayout.LayoutParams useLp = new LinearLayout.LayoutParams(0,
+                UiKit.dp(this, 46), 1.25f);
+        useLp.setMargins(UiKit.dp(this, 8), 0, 0, 0);
+        actions.addView(use, useLp);
+        root.addView(actions, actionsLp);
+
+        if (savedState != null) editor.restoreEditorState(savedState);
+        selectTool(editor.getTool(), false);
+        return root;
+    }
+
+    private void selectTool(ScreenSelectionView.Tool tool, boolean haptic) {
+        if (editor == null) return;
+        boolean changed = editor.getTool() != tool;
+        editor.setTool(tool);
+        if (haptic && changed) performTick();
+        refreshControls();
+    }
+
+    private void refreshControls() {
+        if (editor == null || cropButton == null) return;
+        boolean crop = editor.getTool() == ScreenSelectionView.Tool.CROP;
+        styleTool(cropButton, crop, OrbitText.get(R.string.ui_crop_tool_4a4fe7, "Crop tool"));
+        styleTool(markupButton, !crop, OrbitText.get(R.string.ui_mark_up_tool_fefd89, "Mark up tool"));
+        instruction.setText(crop
+                ? (editor.hasCrop() ? OrbitText.get(R.string.ui_drag_to_move_or_use_the_handles_to_resize_0555f1, "Drag to move or use the handles to resize")
+                : OrbitText.get(R.string.ui_drag_to_select_an_area_cf38e5, "Drag to select an area"))
+                : OrbitText.get(R.string.ui_mark_what_you_want_orbit_to_notice_3756ba, "Mark what you want Orbit to notice"));
+        boolean canUndo = !crop && editor.canUndo();
+        undoRow.setVisibility(canUndo ? View.VISIBLE : View.GONE);
+        undoButton.setEnabled(canUndo);
+    }
+
+    private void styleTool(Button button, boolean selected, String description) {
+        button.setSelected(selected);
+        button.setContentDescription(description + (selected ? OrbitText.get(R.string.ui_selected_bd44f3, ", selected") : OrbitText.get(R.string.ui_not_selected_ec3f69, ", not selected")));
+        button.setTextColor(selected ? UiKit.onAccent(this) : UiKit.TEXT);
+        button.setBackground(selected
+                ? UiKit.ripple(UiKit.accent(this), UiKit.onAccent(this), 14, this)
+                : UiKit.ripple(Color.TRANSPARENT, UiKit.accent(this), 14, this));
+    }
+
+    /**
+     * Keeps the current selection in Orbit Vault, and stays here.
+     *
+     * <p>Speed is the whole point. Somebody who has just cropped the thing they wanted has already
+     * done the work; asking them to name it and write a note before it is saved would make keeping
+     * a screenshot slower than asking about one. So it saves immediately, says so, and leaves the
+     * editor open - the note, the title and the rest are all still there on the item afterwards,
+     * and the crop the user made is still available to attach to a message.
+     *
+     * <p>Nothing is saved automatically. There is exactly one route into this method and it is a
+     * tap on a control the user can see.
+     */
+    private void saveSelectionToVault() {
+        if (editor == null || finished) return;
+        if (!Prefs.vaultEnabled(this)) {
+            Toast.makeText(this, OrbitText.get(R.string.ui_orbit_vault_is_turned_off_cd728c, "Orbit Vault is turned off"), Toast.LENGTH_SHORT).show();
+            return;
+        }
+        Bitmap result;
+        try { result = editor.renderResult(false); }
+        catch (Exception e) { result = null; }
+        if (result == null) {
+            Toast.makeText(this, OrbitText.get(R.string.ui_orbit_could_not_render_this_selection_d56424, "Orbit could not render this selection"), Toast.LENGTH_LONG).show();
+            return;
+        }
+        // The words on the screen travel with a full-screen save, so the screenshot can be found
+        // by what it said. A crop keeps only what the user kept: the rest of the screen is exactly
+        // what they chose to leave out, so its text is never stored with the crop.
+        String screenText = "";
+        if (!editor.hasCrop() && getIntent() != null) {
+            String extra = getIntent().getStringExtra(ScreenSelectionStore.EXTRA_SCREEN_TEXT);
+            screenText = extra == null ? "" : extra;
+        }
+        OrbitVaultItem saved = OrbitVaultStore.saveImage(this, result, "",
+                OrbitVaultSource.SCREEN_SELECTION, "", screenText);
+        if (!result.isRecycled()) result.recycle();
+        if (saved == null) {
+            Toast.makeText(this, OrbitVaultStore.saveFailureMessage(this,
+                    OrbitText.get(R.string.ui_orbit_could_not_save_this_selection_f0e43f, "Orbit could not save this selection")), Toast.LENGTH_LONG).show();
+            return;
+        }
+        performTick();
+        Toast.makeText(this, OrbitVaultStore.savedMessage(this), Toast.LENGTH_SHORT).show();
+    }
+
+    private void complete(boolean useFullScreen) {
+        if (finished || editor == null) return;
+        Bitmap result;
+        try { result = editor.renderResult(useFullScreen); }
+        catch (Exception e) { result = null; }
+        if (result == null) {
+            Toast.makeText(this, OrbitText.get(R.string.ui_orbit_could_not_render_this_selection_d56424, "Orbit could not render this selection"), Toast.LENGTH_LONG).show();
+            if (!callbackToken.isEmpty()) failAndFinish();
+            return;
+        }
+        final Bitmap renderedResult = result;
+        boolean precise = !useFullScreen && (editor.hasCrop() || editor.hasMarkup());
+        finished = true;
+        if (!callbackToken.isEmpty()) {
+            bridgeResult = result;
+            bridgePrecise = precise;
+            bridgeDeliveryPending = true;
+            performTick();
+            ScreenSelectionStore.delete(this, sourcePath);
+            finishAndRemoveTask();
+            return;
+        }
+        instruction.setText(OrbitText.get(R.string.ui_preparing_selection_62237c, "Preparing selection..."));
+        setRequestedOrientation(ActivityInfo.SCREEN_ORIENTATION_LOCKED);
+        new Thread(() -> {
+            String resultPath = ScreenSelectionStore.saveResult(this, renderedResult);
+            runOnUiThread(() -> {
+                if (resultPath.isEmpty()) {
+                    finished = false;
+                    setRequestedOrientation(ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED);
+                    refreshControls();
+                    Toast.makeText(this, OrbitText.get(R.string.ui_orbit_could_not_save_this_selection_f0e43f, "Orbit could not save this selection"),
+                            Toast.LENGTH_LONG).show();
+                    return;
+                }
+                Intent data = new Intent()
+                        .putExtra(ScreenSelectionStore.EXTRA_RESULT_PATH, resultPath)
+                        .putExtra(ScreenSelectionStore.EXTRA_PRECISE, precise)
+                        .putExtra(ScreenSelectionStore.EXTRA_APP_PACKAGE,
+                                getIntent().getStringExtra(ScreenSelectionStore.EXTRA_APP_PACKAGE))
+                        .putExtra(ScreenSelectionStore.EXTRA_APP_LABEL,
+                                getIntent().getStringExtra(ScreenSelectionStore.EXTRA_APP_LABEL))
+                        .putExtra(ScreenSelectionStore.EXTRA_AGE_LABEL,
+                                getIntent().getStringExtra(ScreenSelectionStore.EXTRA_AGE_LABEL));
+                setResult(RESULT_OK, data);
+                performTick();
+                ScreenSelectionStore.delete(this, sourcePath);
+                finish();
+            });
+        }, "orbit-screen-selection-result").start();
+    }
+
+    private void cancelAndFinish() {
+        if (finished) return;
+        finished = true;
+        if (!callbackToken.isEmpty()) {
+            bridgeDeliveryPending = true;
+            bridgeResult = null;
+            bridgePrecise = false;
+        }
+        ScreenSelectionStore.delete(this, sourcePath);
+        setResult(RESULT_CANCELED);
+        if (callbackToken.isEmpty()) finish();
+        else finishAndRemoveTask();
+    }
+
+    private void failAndFinish() {
+        if (finished) return;
+        finished = true;
+        bridgeDeliveryPending = true;
+        bridgeFailurePending = true;
+        bridgeResult = null;
+        bridgePrecise = false;
+        ScreenSelectionStore.delete(this, sourcePath);
+        setResult(RESULT_CANCELED);
+        finishAndRemoveTask();
+    }
+
+    @Override public void onBackPressed() { cancelAndFinish(); }
+
+    @Override protected void onSaveInstanceState(Bundle outState) {
+        if (editor != null) editor.saveEditorState(outState);
+        super.onSaveInstanceState(outState);
+    }
+
+    @Override protected void onDestroy() {
+        if (isFinishing() && !finished) cancelAndFinish();
+        deliverPendingBridge();
+        super.onDestroy();
+    }
+
+    @Override protected void onStop() {
+        super.onStop();
+        if (isFinishing()) deliverPendingBridge();
+    }
+
+    private void deliverPendingBridge() {
+        if (!bridgeDeliveryPending) return;
+        bridgeDeliveryPending = false;
+        if (bridgeFailurePending) ScreenSelectionBridge.fail(callbackToken);
+        else ScreenSelectionBridge.deliver(callbackToken, bridgeResult, bridgePrecise);
+        bridgeFailurePending = false;
+        bridgeResult = null;
+    }
+
+    private void performTick() {
+        if (!Prefs.haptics(this)) return;
+        try { getWindow().getDecorView().performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK); }
+        catch (Exception ignored) { }
+    }
+
+    /**
+     * The compact Vault action: Orbit's own Vault glyph and one word.
+     *
+     * <p>The real drawable rather than a generic save icon, because it is the same destination the
+     * Documents viewer, the share sheet and the message menu all name, and a person should be able
+     * to recognise it without reading. The word stays beside it so the icon never has to carry the
+     * meaning on its own.
+     */
+    private Button compactVaultButton() {
+        Button button = secondaryButton(OrbitText.get(R.string.ui_vault_5d55c4, SAVE_TO_VAULT), OrbitText.get(R.string.ui_save_this_selection_to_your_vault_a6f69f, "Save this selection to your Vault"));
+        button.setTextSize(12);
+        button.setPadding(UiKit.dp(this, 6), 0, UiKit.dp(this, 6), 0);
+        button.setCompoundDrawablePadding(UiKit.dp(this, 5));
+        Drawable glyph = getResources().getDrawable(R.drawable.ic_vault, getTheme());
+        if (glyph != null) {
+            glyph = glyph.mutate();
+            glyph.setTint(UiKit.accent(this));
+            // Sized down from the 24dp source, because this control is a compact action beside two
+            // full-size ones rather than an icon button of its own.
+            glyph.setBounds(0, 0, UiKit.dp(this, 16), UiKit.dp(this, 16));
+            button.setCompoundDrawablesRelative(glyph, null, null, null);
+        }
+        return button;
+    }
+
+    private Button quietButton(String text, String description) {
+        Button button = secondaryButton(text, description);
+        button.setTextColor(UiKit.accent(this));
+        button.setBackground(UiKit.ripple(Color.TRANSPARENT, UiKit.accent(this), 13, this));
+        return button;
+    }
+
+    private Button toolButton(String text, String description) {
+        return secondaryButton(text, description);
+    }
+
+    private Button secondaryButton(String text, String description) {
+        Button button = new Button(this);
+        button.setText(text);
+        button.setContentDescription(description);
+        button.setTextColor(UiKit.TEXT);
+        button.setTextSize(13);
+        button.setAllCaps(false);
+        button.setMinHeight(0);
+        button.setMinimumHeight(0);
+        button.setStateListAnimator(null);
+        button.setBackground(UiKit.rippleOutlined(UiKit.SURFACE_2,
+                UiKit.withAlpha(UiKit.accent(this), 85), UiKit.accent(this), 14, this));
+        UiKit.pressScale(button);
+        return button;
+    }
+
+    private Button primaryButton(String text, String description) {
+        Button button = new Button(this);
+        button.setText(text);
+        button.setContentDescription(description);
+        button.setTextColor(UiKit.onAccent(this));
+        button.setTextSize(13);
+        button.setAllCaps(false);
+        button.setMinHeight(0);
+        button.setMinimumHeight(0);
+        button.setStateListAnimator(null);
+        button.setBackground(UiKit.ripple(UiKit.accent(this), UiKit.onAccent(this), 14, this));
+        button.setBackgroundTintList((ColorStateList) null);
+        UiKit.pressScale(button);
+        return button;
+    }
+}

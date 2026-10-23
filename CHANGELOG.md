@@ -1,0 +1,1047 @@
+# Orbit Assistant Changelog
+
+This is the canonical version-by-version patch history for Orbit Assistant. Each source release should update this file before packaging. The Android `versionName` remains the human-facing four-part Orbit version, while `versionCode` continues as the simple monotonically increasing build number used by Android.
+
+Historical entries through v0.5.11.3 were reconstructed from the original Orbit development conversation. Entries from v0.5.11.4 onward are maintained as part of the source-release workflow.
+
+## 0.1 series
+
+- **v0.1**: Initial Orbit prototype. Added Android Digital Assistant integration, Side-button assistant overlay, screen text/screenshot context, voice input, spoken replies, optional hands-free follow-ups, text chat, Luna/Terra/Sol model controls, Android device actions, local command handling, theming, privacy controls, and optional API-relay support.
+- **v0.1.1**: Build/distribution update. Added the automated Windows build tooling and GitHub build workflow so Orbit could be compiled without manually configuring the full Android environment. No major assistant feature change.
+
+## 0.2 series
+
+- **v0.2**: Added **Sign in with ChatGPT** using the Codex device-code account flow. ChatGPT-account access became the preferred provider, credentials were stored securely, token refreshing was added, and the API relay remained an explicit fallback rather than an automatic one. Device-action support was also expanded.
+- **v0.2.1**: Fixed the Windows builder. Instead of depending on `winget` for Java, Orbit could download and use its own portable Java 17 environment.
+- **v0.2.2**: Fixed a Java compile failure in the ChatGPT sign-in UI. The Windows builder also began automatically saving a full build log when Gradle failed.
+- **v0.2.3**: Fixed the Windows builder incorrectly treating harmless Gradle/Android warnings as fatal errors. Build success became based on Gradle’s actual exit result.
+- **v0.2.4**: Major Galaxy S25 Ultra usability pass. Fixed live accent switching, Samsung Keyboard overlap, added **Start a new chat each time Orbit opens**, added a manual New Chat button, prevented stale screen context from carrying between invocations, and improved build-tool caching.
+
+## 0.3 series
+
+- **v0.3.0**: Major assistant-quality upgrade. Added streaming replies, contextual screen actions, local recent-chat history, action result cards, simplified **Auto / Fast / Balanced / Deep / Custom** modes, better voice follow-ups/interruption, optional screen-action suggestions, and duplicate-prompt cleanup.
+- **v0.3.1**: Improved phone-action reliability. Fixed timer/alarm permission handling, improved alarm/timer completion behavior, replaced the placeholder voice indicator with a proper microphone icon, and cleaned up device-action error messages.
+- **v0.3.2**: Major motion/UI polish. Added **Blurple**, a visual accent selector, animated opening/closing, proper vector icons, accent-tinted sheet styling, ripple/press/haptic interactions, animated bubbles, and composer focus styling.
+- **v0.3.3**: Motion-stability pass. Removed competing window animations, eliminated translucent/ghosting behavior, kept the sheet opaque while moving, and refined opening/closing motion.
+- **v0.3.4**: Further motion stabilization based on S25 Ultra recordings. Reserved screen-context space before animation, simplified entrance to smooth vertical movement, and reduced resizing/jumping while the overlay opened.
+- **v0.3.5**: Lifecycle-safe overlay animation and live theme switching. Orbit began preparing the overlay before it became visible, producing a cleaner first frame, and Settings accent changes stopped recreating the entire activity or resetting scroll position.
+- **v0.3.6**: Fixed the “new chat every time” visual mismatch so the visible conversation matched the newly created chat. Added **Copy** and **Use in chat** controls for drafted replies.
+- **v0.3.7**: Added the AI-strength selector directly inside the overlay. Also added Orbit’s no-em-dash response preference.
+- **v0.3.8**: Added the three-dot thinking animation, made typed requests stay silent while voice requests could still speak, and changed current-screen context into an explicit **Use screen** attachment rather than automatically sending it.
+- **v0.3.9**: Fixed the thinking indicator occasionally appearing above the user message. Keyboard-open overlay experimentation was deliberately deferred.
+- **v0.3.10**: Added reliable background completion when the overlay was dismissed or another chat was opened. Added persistent **Screen attached** indicators to conversation history.
+- **v0.3.11**: Fixed a background-completion race where a finished response could later be overwritten by an older hidden overlay state.
+- **v0.3.12**: Added **Pastel Pink** **`#FFD1DC`** and **Pastel Blue** **`#CBE5F2`** accents, including automatic foreground contrast for the much lighter colors.
+- **v0.3.13**: Replaced the hidden horizontal accent carousel with a visible multi-row accent grid so all colors, including the new pastels and Rose, were immediately accessible.
+- **v0.3.14**: Improved contextual reply detection by considering the foreground app in addition to visible screen text, making **Draft reply** more reliable in Discord and other messaging apps.
+- **v0.3.15**: Improved foreground-app detection on newer Android versions and kept fallback methods for apps where foreground information was less complete.
+- **v0.3.16**: Update-safety fix. Corrected Android version-code progression so new Orbit builds installed as upgrades rather than being rejected as downgrades, and established a monotonic version-code policy.
+- **v0.3.17**: Expanded alternate Discord-client recognition, including **Shiggy/ShiggyCord, Kettu, and Rain**, while also using app labels and screen content to identify messaging surfaces.
+
+## 0.4 series
+
+- **v0.4.0**: Major **companion-app release**. Added the full-screen Orbit app with chat list/search/new chat/rename/delete, full-screen conversations, shared history between overlay and app, durable WorkManager background requests, Still Thinking status, up to 100 chats, optional private screen thumbnails, Settings behind a cog, and experimental keyboard-aware overlay behavior.
+- **v0.4.1**: Small maintenance fix to the keyboard-aware Side-button behavior and release metadata. No major new feature.
+- **v0.4.2**: Fixed full-screen safe-area/status-bar handling and Samsung Keyboard behavior. Chat composers regained reliable focus after actions such as flashlight control and stayed above the IME.
+- **v0.4.3**: Fixed repeated typing in the Side-button overlay, strengthened keyboard reconnection, simplified full-screen chat headers, slightly tightened Chats-page top spacing, and removed duplicate assistant-history insertion.
+- **v0.4.4**: Made accent changes propagate live into the full companion app while preserving the current search and scroll position.
+- **v0.4.5**: Added compact **Copy** controls beneath normal assistant responses in both the overlay and full-screen chat.
+- **v0.4.6**: Added independent user/assistant bubble colors, a **Pastel Duo** shortcut, and the hidden playful **Lelo mode**.
+- **v0.4.7**: Added **Regenerate**, optional background-completion notifications, retryable failed requests, per-chat AI strength, chat overflow controls for rename/clear/delete, and the hidden Diagnostics page.
+- **v0.4.8**: Added native in-chat **weather** using current/saved location, including forecasts, highs/lows, precipitation, wind, and remembered weather locations without requiring the language model to fetch the data.
+
+## 0.5 series
+
+- **v0.5.0**: Started the personalization phase. Added **Orbit Memory**, natural remember/forget commands, the Memory manager, **per-app profiles**, per-app screen/screenshot/AI-strength/action overrides, and enforcement of those profiles in the Side-button assistant.
+- **v0.5.1**: Compile-fix release for 0.5.0. Removed duplicate Diagnostics methods and added validation intended to catch duplicate Java methods before packaging.
+- **v0.5.2**: UI/readability patch. Improved dashboard spacing, fixed unreadable app-profile dropdown text, darkened profile menus, and redesigned Add/Edit Memory dialogs for Orbit’s dark theme.
+- **v0.5.3**: Replaced stock white Android popup menus with Orbit’s dark rounded menus across AI strength, chat menus, recent-chat menus, and Settings. Also improved Memory/Apps navigation animation and spacing.
+- **v0.5.4**: Moved Memory and Apps into a dedicated tools row below Search and refined popup menu size/positioning.
+- **v0.5.5**: Added the smarter **screen-context classifier** with Conversation, Email, Product, Article, Settings, Document, Map, Media, and Generic categories. Quick actions became category-specific, and Diagnostics gained context confidence/source/signal information.
+- **v0.5.6**: Added full-screen attachments through the `+` menu: **Camera, Gallery, File, Current screen, and Clipboard**. Added persistent attachment metadata and reuse for Regenerate.
+- **v0.5.6.1**: Major PDF upgrade. Added full-document text extraction with page markers, up to roughly 100,000 characters of PDF context, truncation warnings, and first-two-page visual previews for figures/scans/layout.
+- **v0.5.6.2**: Fixed a compile error in the attachment branch and made screen attachment data consistently use the same frozen snapshot for local history and the AI request.
+- **v0.5.7**: Added **Notification Intelligence**: Android Notification Listener access, private local notification history, retention settings, per-app inclusion/exclusion, clearing history, natural notification questions, time-range interpretation, and untrusted-context protections.
+- **v0.5.7.1**: Fixed the Notification Access compile error by using the proper AndroidX notification-listener API and declaring the required AndroidX Core dependency directly.
+- **v0.5.7.2**: Fixed the Notifications dashboard button looking misaligned with Memory and Apps by making all three use matching sizing and typography.
+- **v0.5.7.3**: Fixed Memory/Apps/Notifications changing shape, moving, and clipping when pressed. Removed conflicting animations from those three navigation buttons while retaining ripple/haptic feedback.
+- **v0.5.7.4**: Reduced the oversized gap between the dashboard shortcut row and Recent Chats and fixed dark/unreadable notification-dialog text.
+- **v0.5.8**: Added genuinely smarter **Auto routing**. It began considering prompt complexity, conversation history, attachments, PDF size, screenshots, screen category, and notification context when choosing Fast/Balanced/Deep. Diagnostics gained the most recent Auto decision/reason/confidence. Also added **AMOLED true-black mode**.
+- **v0.5.9**: **Memory 2.0.** Added relevance filtering, suggested **Remember this?** memories, search, pins, per-memory enable/disable, duplicate detection, optional **Used N memories** indicator, and expanded natural memory commands.
+- **v0.5.9.1**: Fixed obvious preference statements such as “I always prefer…” not triggering memory suggestions, improved the Used Memories panel spacing, and stopped unrelated Person memories from being included so broadly.
+- **v0.5.9.2**: Fixed the Windows builder still naming newer APKs as `v0.5.9`. The builder began reading Orbit’s actual version automatically and cleaning up stale APK copies.
+- **v0.5.9.3**: Made **Remember this?** consistent between the full app and overlay. Changed standalone **Remember that / Remember this** to refer to the previous durable statement instead of literally saving “that” or “this.”
+- **v0.5.9.4**: Compile fix for the 0.5.9.3 memory changes. No intended feature change.
+- **v0.5.9.5**: Made the overlay’s **Not now / Save** memory-suggestion controls match the outlined buttons used in the full app.
+- **v0.5.9.6**: Fixed Notification Intelligence actually handing its collected notification history to ChatGPT. After this, questions such as **“What notifications have I missed?”** could use Orbit’s saved history rather than claiming it had no access.
+- **v0.5.10**: **Per-App Behavior 2.0.** Added Automatic/Normal/Sensitive/No screen access privacy levels, stronger automatic app behavior, independent customization of all three contextual actions, automatic migration of older profiles, improved alternate Discord-client detection, and expanded app-profile Diagnostics.
+- **v0.5.10.1**: UI polish for Per-App Behavior 2.0. Increased space between back buttons and titles on Apps/Memory/app-profile screens, made selectors visibly tappable with outlined fields, and switched the profile choices to the cleaner Orbit popup-menu style.
+- **v0.5.10.2**: Extended the selector/menu makeover across **Settings** and the **Memory category selector**, removing the remaining obvious stock Android dropdown styling.
+- **v0.5.10.3**: Adjusted Orbit popup positioning so menus inside dialogs would stay near their selector and menus could flip above when space below was insufficient.
+- **v0.5.10.4**: Further refined dialog dropdown positioning so the Memory category menu stayed attached below its selector rather than covering the form above. We accepted the remaining minor cosmetic imperfection for the time being.
+- **v0.5.11**: **Voice Beta + 0.6 groundwork.** Added a longer-pause voice option, clearer listening states, and a new Capabilities/0.6 Readiness page showing current Orbit capabilities and planned routines, chained actions, Quick Settings, widgets, and screen-region selection.
+- **v0.5.11.1**: Improved pause-friendly voice by keeping the session alive across recognition breaks and waiting about five seconds of inactivity before submission. Added handlebar gestures: **swipe up to open the current chat in the full app** and **swipe down to close Orbit**, with matching motion and haptics. Also fixed the AI-strength control being crushed by voice-status text.
+- **v0.5.11.2**: Polished the new overlay gestures. Swipe-up now visually expands the overlay toward full screen before opening the chat, while swipe-down remained unchanged. Redesigned AI strength as a smaller status-row chip so it stayed readable without crowding the header.
+- **v0.5.11.3**: Replaced the placeholder Orbit dots in the companion app with the actual **Orbit logo** and made the logo dynamically follow the selected accent. The overlay icon was converted to the same accent-aware version so Orbit branding stays consistent between the app and Side-button assistant.
+
+## 0.5.11 continuation
+
+- **v0.5.11.4**: Corrected the adaptive Orbit logo geometry so the in-app mark exactly matched the actual app icon while continuing to follow the selected accent.
+- **v0.5.11.5**: Made the Settings logo update immediately when the accent changes and moderately tightened the overlay's top spacing.
+- **v0.5.11.6**: Moved Voice Beta listening status out of the header and into the composer placeholder. The header remains stable at **Ready** while the composer communicates listening state.
+- **v0.5.11.7**: Strengthened Draft Reply perspective handling so Orbit better distinguishes the user from the other conversation participant. This improved the prompt logic but did not fully solve all identity-correction cases.
+- **v0.5.11.8**: Added conversation-scoped Draft Reply identity context so explicit corrections such as identifying who the user is can be retained for the current attached conversation without hardcoding a name. Standardized Draft Reply entry points around the same context logic and corrected the BuildConfig packaging issue introduced during this release. This became the final stable 0.5 baseline.
+
+## 0.6 series
+
+- **v0.6.0.0**: Began the **Power Assistant** phase with a shared `OrbitActionEngine`. Added ordered multi-action execution, centralized confirmation/result handling, stop/continue behavior, local chained-command parsing, and initial brightness and Do Not Disturb actions. Both the overlay and full chat use the same execution path.
+- **v0.6.0.1**: Improved punctuation-free chained-command parsing, persisted action-result cards between overlay and full chat, and added a reversible flashlight action card with a persistent off state. Also advanced the in-chat current-information search path.
+- **v0.6.0.2**: Improved hosted-search reliability for typed and voice requests, added retry behavior for transient search overloads, and introduced persistent native source controls for typed web answers.
+- **v0.6.0.3**: Polished source handling in the overlay, including the browser handoff behavior so opening a source dismisses Orbit and reveals the destination cleanly.
+- **v0.6.0.4**: Kept voice-triggered web answers in chat while suppressing unreliable source buttons for voice responses. Typed web answers continue to show native source controls.
+- **v0.6.0.5**: Added cleaner special-permission setup for brightness and Do Not Disturb. Missing access can surface an inline **Grant access** action, and readiness lives in **Permissions & capabilities** rather than adding more clutter to the main Settings page. Corrected the Android DND settings intent used by the initial build.
+- **v0.6.0.6**: Moved the Auto/Fast/Balanced/Deep chip into a cleaner overlay header position and standardized the flashlight **Turn off** control between overlay and full chat.
+- **v0.6.0.7**: Refined the flashlight **Turn off** control into a smaller, tighter bordered button with better spacing from the action status text.
+- **v0.6.0.8**: Removed redundant duplicate **Flashlight off** detail after using the inline reversal control while preserving meaningful step information for multi-action chains.
+- **v0.6.0.9**: Replaced the stock Android clear-history confirmation with an Orbit-themed dark rounded dialog, including themed text, accent-colored Cancel, and a red destructive Clear action. This release was validated as the stable 0.6.0.x Action Engine foundation.
+
+## 0.6.1 series
+
+- **v0.6.1.0**: Reorganized Settings from one long page into a category hub with focused subpages for **Assistant setup**, **AI & account**, **Voice, context & permissions**, **Conversations**, **Appearance & feedback**, and **Advanced**. Added light Settings haptics that respect the existing Haptic feedback toggle, moved that toggle into Appearance & feedback, and exposed Diagnostics directly under Advanced.
+- **v0.6.1.1**: Fixed live accent refresh on Settings detail pages so the back-arrow tint and ripple update immediately when the selected accent changes.
+- **v0.6.1.2**: Added the **Nova** accent (`#4C00FF`) and removed the redundant **Pastel Duo** shortcut while keeping the individual pastel colors available.
+- **v0.6.1.3**: Replaced the large accent and chat-color grids with compact Orbit-themed popout selectors. Added Nova as an independent user/assistant bubble color. Popout menus inherit the current Orbit accent whenever they open, including immediately after an accent change.
+
+## 0.6.2 series
+
+- **v0.6.2.0**: Added the first complete **Orbit Routines** foundation on top of the shared Action Engine. Added a local Routines manager under Settings, durable on-device routine storage, unique names, create/edit/duplicate/delete management, ordered step editing, move/duplicate/remove controls, unsaved-change protection, and manual routine execution with per-step status feedback. Permission failures in the routine runner can surface themed **Grant access** controls for supported special/runtime access and a **Run again** control after a stopped chain. The initial deterministic routine catalog supports app launch, brightness, Do Not Disturb, media volume, flashlight, timers, alarms, Android Settings, the Internet panel, and Bluetooth settings. Saved routines replay through the existing `OrbitActionEngine`, preserving the same ordering and stop-on-failure semantics as normal chained commands. Added local natural-language triggers such as **Run Bedtime**, **Start my Gaming routine**, and polite variants, plus local routine-list queries. Updated the Capabilities page to report Routines as live in 0.6.2. Outbound communication actions remain intentionally excluded from reusable routines until Orbit has a dedicated routine safety model for them.
+
+- **v0.6.2.1**: Improved natural routine invocation without making execution ambiguous. Explicit commands such as **Run that gaming routine** can now resolve a uniquely matching saved routine such as **Gaming Test** using conservative local name/token matching; ties produce a local clarification instead of guessing, and explicit missing-routine requests no longer fall through to web/AI routing. Replaced the stock positional entrance used by Orbit popup menus and themed confirmation dialogs with a quick Orbit fade/subtle-scale transition, smoothing the Routines overflow menu and confirmations such as **Clear Orbit history?** without slowing them down. Corrected the animation-style resource declaration so Android does not infer a nonexistent `Orbit` parent style during AAPT resource linking.
+- **v0.6.2.2**: Expanded Orbit's reversible action-card pattern to **Do Not Disturb**. Successful DND-on results now expose a compact **Turn off** control beside the action status, matching flashlight behavior. The reversal uses the normal `DeviceActionExecutor`, updates the card to Orbit's red/off state, and persists the changed state in overlay/full-chat history through `ActionResultStore`. Added a shared reversible-action definition so flashlight and DND use the same control logic rather than separate one-off implementations. The manual Routines runner now exposes the same Turn off control for supported reversible actions, keeping routine execution behavior consistent across Settings, overlay, and full chat.
+
+## 0.6.3 series
+
+- **v0.6.3.0**: Added **automatic Routine time triggers**. Routines can now have multiple independent schedules with Once, Daily, Weekdays, Weekends, Weekly, Monthly, **Every 2 weeks (biweekly / fortnightly)**, and custom every-N-days/weeks/months recurrence. Weekly schedules support multiple weekdays. Added durable trigger storage, next-run/last-result state, exact-alarm readiness with safe inexact fallback, automatic rescheduling after reboot/app update/clock/time-zone changes/exact-alarm access grants, launch-time schedule reconciliation after force-stop, and cleanup when a routine is deleted. Background-safe steps execute automatically; known brightness/DND access is preflighted before device changes, while foreground/confirmation-dependent steps preserve routine order and hand off through a tap-to-continue notification rather than being skipped or forced. Mixed routines are not partially applied when trigger alerts are unavailable. Continuation completion/failure is written back to the trigger's last-result state, failure alerts can return to the failed step for retry, routine-runner retries resume at the failed step, completed one-time triggers are labeled Finished, new triggers default to Once, duplicated triggers start disabled, and Orbit blocks identical enabled schedules for the same routine to prevent accidental double-runs. Added Orbit-themed trigger manager/editor screens, exact-alarm readiness, notification readiness that detects runtime/global/channel blocking with a settings shortcut, haptics, and unsaved-change protection.
+- **v0.6.3.1**: Integrated Routine trigger permissions into **Permissions & capabilities**. Added a dedicated Routine automation section showing Time triggers, Precise timing, and Trigger alerts readiness. Precise timing reports Ready versus Approximate based on Android's Alarms & reminders access, while Trigger alerts reflect runtime/global/channel notification availability. Added Set up/Manage controls for both access paths and live refresh when returning from Android Settings.
+
+- **v0.6.3.2**: Expanded the **Permissions & capabilities** dashboard with persistent **Set up / Manage** controls for Android-backed access that can be configured from system Settings. Added controls for Microphone, Notification intelligence, Approximate location, Flashlight control, and Contact lookup, and kept Brightness, Do Not Disturb, Precise timing, and Trigger alerts manageable after they are already granted. Runtime/special-access states refresh when returning to Orbit. Clarified **Time triggers** as **Available** rather than implying a third automation permission. Renamed the Settings category **Appearance & feedback** to **Look & Feel** without changing stored preference keys or user settings.
+- **v0.6.3.3**: Cleaned up the **Permissions & capabilities** layout by giving capability rows a consistent minimum height, eliminating the uneven vertical rhythm introduced when persistent Manage buttons were added. Updated the Capabilities header copy to reflect the live Power Assistant rather than an upcoming 0.6 readiness phase. Fixed phantom **Open source · Source** chips on non-web answers by only deriving fallback sources from actual hosted web-search events and rejecting malformed/non-public-looking URLs before rendering a native source control. Added a real local **SET_REMINDER** action with durable one-time reminder storage, AlarmManager scheduling, exact/inexact timing behavior tied to Orbit's existing precise-timing access, reminder notifications, reboot/app-update/time-change rescheduling, and a new **Settings → Assistant setup → Manage Orbit reminders** screen for reviewing and cancelling pending reminders. Reminder prompts now explicitly require Orbit to ask for missing date/time information and to emit the action rather than merely promise a reminder was created.
+
+- **v0.6.3.4**: Refined the Settings information architecture after adding local reminders. Added a dedicated **Personalization & data** category that clearly surfaces **Reminders, Orbit Memory, app profiles, and Notification Intelligence** in one place, and removed reminders from Assistant setup so that page stays focused on default-assistant/Side-button setup. Added direct manager buttons for all four tools. Replaced generic detail-page subtitles such as **Orbit settings** and **Power Assistant** with concise page-specific labels including **Core setup**, **Models & access**, **Input & awareness**, **Local context**, **Chat behavior**, **Style & feedback**, **Developer tools**, and **Automation**. Also clarified nested headers for Capabilities, Reminders, and Apps without changing any stored preference keys or user data.
+- **v0.6.3.5**: Simplified the companion-app Chats dashboard now that personalization managers have a dedicated Settings home. Removed the redundant **Memory / Apps / Notifications** shortcut row, reclaimed the space above Recent Chats, and added a subtle accent-aware fade divider between the fixed New Chat/Search controls and the scrolling conversation area. The divider follows live accent changes through the existing companion-app theme rebuild path.
+
+
+- **v0.6.3.6**: Polished the companion-app Chats divider introduced in v0.6.3.5. Replaced the ultra-thin accent rule with a wider two-layer Orbit section break using a soft outer glow and brighter core band, and rebalanced the vertical spacing around it so the handoff from fixed dashboard controls into scrolling recent chats feels cleaner and more intentional.
+- **v0.6.3.7**: Cleaned up the companion-app Chats divider after the v0.6.3.6 layered treatment looked visually misaligned on-device. Replaced the separate glow and bright core bands with one centered, symmetric live-accent fade, preserving the existing dashboard layout and chat-history spacing while removing the slider-like appearance.
+- **v0.6.3.8**: Corrected the Chats divider placement so it now sits directly on the real top edge of the scrolling chat-history viewport. Removed the gap that made the line float above the clipping boundary, simplified it to a subtle full-width 1 dp live-accent rule, and transferred that spacing above the divider so the established dashboard height stays effectively unchanged while chat cards clip immediately beneath the line. No other Chats UI was redesigned.
+- **v0.6.3.9**: Refined the correctly positioned Chats divider without moving the chat-history boundary. Replaced the plain 1 dp rule with a restrained live-accent treatment: a soft edge-faded haze above a crisp edge-faded core line. The glow remains entirely on the fixed-controls side and the core sits on the bottom edge, so scrolling cards still clip at the same functional cutoff established in v0.6.3.8. No other Chats UI was changed.
+- **v0.6.3.10**: Added an app-wide font selector under **Settings → Look & Feel**. Choices include **Orbit Default**, **Times New Roman**, **Light**, **Condensed**, **Monospace**, and **Casual**. Orbit Default preserves the existing UI font, while Times New Roman uses Android's built-in serif family for a similar classic appearance without bundling a font file. Font selection is persisted locally and routed through shared `UiKit` typography handling so normal companion-app text, controls, menus, and the Side-button overlay follow the same choice. The Settings preview updates immediately, and the main Chats surface refreshes the selected font when returning from Settings.
+- **v0.6.3.11**: Fixed the new app-font selector after on-device testing showed that **Light**, **Condensed**, and **Casual** could collapse to the normal system face on some Samsung/OEM builds. Light now uses explicit Android font weights, Condensed uses the system condensed family plus a narrow text scale fallback so the choice remains visibly distinct, and Casual now uses Android's generic cursive family rather than the unsupported `casual` family alias. Also fixed Settings navigation so the parent Settings hub reapplies the selected typography immediately when returning from **Look & Feel**, instead of showing the previous font until that page was reopened.
+- **v0.6.3.12**: Corrected the remaining app-font issues found during on-device testing. **Monospace** now uses Android's canonical `Typeface.MONOSPACE` object rather than a string family lookup, avoiding OEM aliasing back to the normal sans face. **Light** now uses Android's light sans family with a deliberately lighter regular weight so it is visibly different from Orbit Default while retaining stronger headings. The **App font** popup now renders each option label in the font it represents, and the selected field previews that font as well, making the choices directly comparable before selection. No other Look & Feel layout or app UI was redesigned.
+- **v0.6.3.13**: Reworked the two font choices that still collapsed to Orbit Default on the target Samsung device. **Light** and **Monospace** now resolve from Android's actual registered system font files through `SystemFonts`/`FontFamily` rather than generic OEM family aliases, with safe fallbacks if a matching system file is unavailable. Added small per-font letter spacing so both choices remain visually distinguishable even on aggressive OEM typography substitutions. Restored **Casual** to the `casual` family used in v0.6.3.10 because that produced the cleaner handwritten face preferred on-device. The font picker continues to render each option in its own resolved font. No other Look & Feel layout or app UI was changed.
+
+## 0.6.4 series
+
+- **v0.6.4.0**: Added **location-triggered Routines** on top of Orbit's existing automatic-trigger architecture. Saved Routines can now run when the phone **arrives at** or **leaves** a labeled area with a configurable radius from 100 m to 5 km. Added durable location-trigger fields/state, current-location capture plus manual coordinates, independent enable/disable/edit/duplicate/delete behavior, duplicate-enabled-area conflict protection, and separate Time/Location sections in the existing Automatic triggers manager. Location monitoring uses Android's platform proximity alerts and is reconciled through the shared `RoutineTriggerScheduler` after reboot, app update, relevant location-service changes, and normal Orbit resumes. Added precise/background-location readiness and Set up/Manage flows to Permissions & capabilities and the trigger editor/manager, including the Android 11+ Settings handoff required for background location. Location events execute through the existing `RoutineTriggerExecution` and shared `OrbitActionEngine`, preserving background-safe special-access preflights, ordered action execution, and notification continuation for foreground/confirmation-dependent steps. Added a short retrigger guard for noisy area boundaries and retained local-only saved trigger coordinates rather than creating a location-history log.
+- **v0.6.4.1**: Added **IF conditions inside saved Routine steps**. A condition can check a local time window, a saved location/radius, or both together, and can gate the next 1–5 steps. When false, Orbit marks only the gated actions as skipped and continues with later steps, enabling multiple independent conditional blocks in one Routine. Location conditions reuse Orbit's existing location permissions/current-location capture, and execution remains on the shared `OrbitActionEngine`; automatic trigger execution also ignores foreground requirements inside branches that are currently false.
+- **v0.6.4.2**: Fixed the **on-screen positioning of Orbit's selector popups inside the IF-condition editor**. Menus for Time, Location, Time + location, radius, and “Apply condition to” now anchor against the phone's visible display frame instead of the shorter dialog window, so they flip above the field when needed and stay aligned on-screen rather than hanging off the bottom edge. The positioning helper is shared with Orbit's themed popup menus, keeping the dialog cleanup narrow without redesigning the IF-condition UI.
+- **v0.6.4.3**: Added reusable **Saved places** for Routine automation. Settings → Personalization & data now includes a Saved places manager where locations such as Home, Work, or Gym can be named and stored locally using current precise location or manually entered coordinates. Location-trigger editors can choose a saved place to populate their label/coordinates, while still supporting current-location capture and manual coordinates. Location-based IF conditions now expose the same saved-place picker and can jump directly to the Saved places manager. Saved places are reusable presets only: existing triggers and IF steps retain their own stored coordinates if a preset is later edited or deleted.
+- **v0.6.4.4**: Added a versioned, local **Backup & Restore** system under Settings → Personalization & data. Android's Storage Access Framework lets the user choose the `.orbitbackup` destination/source without broad storage access. Backups cover chats and saved history attachments, visible action results, Orbit Memory, Routines and IF chains, time/location triggers, reminders, Saved places, app profiles, notification-intelligence configuration, and an explicit allowlist of personalization/assistant preferences. Complete validation occurs before overwrite confirmation, restore uses rollback snapshots if a store commit fails, and restored reminders plus automatic Routine triggers are reconciled through the existing schedulers. Sensitive account/API/relay credentials, signing material, Android permissions/default-assistant state, notification message history, active requests, diagnostics, and transient screen data remain excluded. Backup files are not encrypted and should be kept private.
+- **v0.6.4.5**: Fixed Saved Places text readability in dark/AMOLED mode without changing its layout or location behavior. The page now prevents Android's automatic Force Dark pass from re-transforming Orbit's explicit theme colors, secondary button labels use the same readable shared foreground as equivalent Settings controls while retaining accent outlines, and Add/Edit/Delete dialog text is explicitly tinted through Orbit's existing dark-surface color system.
+- **v0.6.4.6**: Smoothed the Saved Places Add/Edit/Delete dialog flow. Orbit now prepares the dark dialog surface and Force Dark behavior before the window becomes visible, uses the shared subtle popup fade/scale enter and exit animation, and waits for the entrance motion to finish before switching the current-location button into its loading state. This removes the post-show flash/jump without changing Saved Places layout, styling, data, or location behavior.
+- **v0.6.4.7**: Fixed app-font consistency for Orbit-owned controls created after initial screen setup, including dialog titles, content, actions, inputs, hints, buttons, checkboxes, radio labels, and other dynamic text while preserving intentional Look & Feel font previews and text emphasis. Centralized Orbit dialog preparation so Saved Places, Memory Management, and the related Settings/automation dialog families apply the established subtle fade/scale transition and dark surface before showing, avoiding post-show surface replacement and the resulting jump/flash. The Saved Places current-location action also keeps a stable label while resolving a fix so it no longer changes size immediately after the entrance animation.
+- **v0.6.4.8**: Added secure local release-signing configuration for Orbit's first permanent-key build. Release credentials can be supplied through an ignored local properties file or environment variables, the keystore remains outside the repository, and release builds fail early when the required signing values are absent. No application functionality changed.
+- **v0.6.4.9**: Fixed unreliable ChatGPT/Codex device-code sign-in completion on fresh installs and after browser backgrounding. Orbit now securely persists the short-lived pending authorization, resumes one idempotent poller after Settings recreation or process restart, tolerates transient mobile-network and service errors until the device code expires, and verifies encrypted credential persistence before reporting success. Authentication diagnostics now record only safe stage/error categories and never tokens, authorization codes, PKCE verifiers, user codes, or account details. No App Link or signing-certificate dependency was introduced, and the API-relay fallback remains unchanged.
+- **v0.6.4.10**: Added Orbit's first production in-app updater under **Settings → About & updates**. Orbit checks only public stable GitHub Releases, never downloads without approval, and validates the release tag/manifest/asset relationship before offering an update. Downloaded APKs are checked for the manifest SHA-256, exact package and newer version, and Orbit's permanent signing certificate before Android's normal package installer can open. A network-constrained WorkManager check runs about daily and notifies only once per available version. The release workflow now derives version metadata from the tagged source and publishes the verified APK, checksum, and generated `orbit-update.json` only after all existing fail-closed package/version/signature gates pass.
+- **v0.6.4.11**: First production validation release for Orbit's in-app update system. No major user-facing functionality changes.
+
+## 0.6.5 series
+
+- **v0.6.5.0**: Began Orbit's **Quick Access & Custom Commands** phase. Polished the production updater with shared readable dark-dialog typography and an accent-colored determinate APK download bar. Added user-consented Android Quick Settings tiles for opening Orbit's existing assistant session and running one configurable saved Routine through the existing Routine runner, permission checks, confirmations, Action Engine, and result UI. Custom Commands remain planned for a future 0.6.5.x release.
+- **v0.6.5.1**: Focused Settings and updater lifecycle polish. Made default-assistant setup functional through Android's assistant role with Digital assistant/default-app Settings fallbacks for Samsung and other OEMs. Moved Weather into **Personalization & data** without changing its stored preferences, corrected its checkbox to use the current Orbit accent, and replaced the incomplete tag-based Settings recolor pass with a shared live appearance signal that refreshes accent, font, AMOLED surfaces, selectors, fields, icons, buttons, and dynamic controls while preserving the active section and scroll position. Added a default-on **Update notifications** preference that affects only automatic new-version alerts, and added post-install reconciliation so a verified private-cache installer APK is removed after Orbit launches at the installed target version while failed/cancelled/stale cleanup behavior remains intact. Quick Settings, authentication, updater verification, signing, and Custom Commands were not changed.
+- **v0.6.5.2**: Simplified default-assistant setup to one reliable control that opens Android's Digital assistant/default-app settings path and becomes **Manage default assistant** when Orbit is already active. Moved the existing Quick Settings tile-add and Routine assignment controls from the Routines page into a dedicated **Assistant setup → Quick access** section while preserving the assigned Routine and all existing tile services, permission handling, and execution behavior. Removed the oversized Quick access card from Routines so saved Routines and run results return to a natural position. No Custom Commands or unrelated behavior changes were included.
+- **v0.6.5.3**: Added the first complete **Custom Commands** release. User-defined primary phrases and up to five aliases resolve locally and deterministically to existing saved Routines by stable ID, with exact normalized matching, built-in-command protection, enabled-command collision checks, safe missing-Routine handling, and execution through the existing Routine/Action Engine path. Added an Orbit-themed manager/editor under **Settings → Routines**, including enable, edit, reassign, and delete controls, plus backward-compatible Backup & Restore coverage. Added **What's New** under **About & updates**, using public stable GitHub Release notes as the canonical source with a last-known-good offline cache and lightweight native Markdown rendering. No scripting/plugin engine or updater verification behavior was added or changed.
+- **v0.6.5.4**: Smoothed the **Routine overflow → Delete confirmation** transition by completing Orbit's shared popup exit motion before starting the established dialog entrance, removing the overlapping positional/scale jump while leaving Edit, Automatic triggers, Duplicate, and deletion behavior unchanged. Reorganized **Settings → Personalization & data** into **Personalization & context → Weather → Reminders → Backup & Restore**, with Backup & Restore permanently last as the page's maintenance/data-portability section. No stored preferences or feature behavior changed.
+
+## 0.6.6 series
+
+- **v0.6.6.0**: Added a built-in **Routine Templates** catalog with capability-aware previews for Gaming, Bedtime, Morning, Focus, Movie, Leaving home, Arriving home, Battery saver, Driving, and Work / study. Using a template creates an ordinary editable saved Routine with a unique name and immediately opens the existing Routine editor; optional Custom Command phrases are shown as suggestions and are never created silently. Hardened Orbit-owned dialogs behind one shared surface, Force Dark, animation, selected-font, readable-foreground, accent-action, and destructive-action styling path, including the confirmed Custom Command delete readability regression. Replaced the Routine overflow delete handoff's fixed timing guess with an explicit popup exit animation completion boundary before the standard Orbit dialog entrance, preventing popup/dialog overlap without changing Routine behavior. First-run onboarding remains planned for v0.6.6.1.
+- **v0.6.6.1**: Added Orbit's first native, resumable **first-run onboarding** with a versioned completion marker and a legacy-install migration gate that silently preserves the normal launch experience for existing users upgrading from earlier releases. Fresh installs can connect ChatGPT through the existing secure device-code flow, open the established Android default-assistant settings path, add the existing Ask Orbit Quick Settings tile, review progressive permissions and capabilities without forced permission chains, personalize the normal Accent/font/AMOLED settings live, and create starter Routines through the v0.6.6.0 Routine Templates path. The Welcome screen can restore an existing Orbit backup through the established fully validated restore system while continuing setup for credentials and Android-managed access that backups intentionally exclude. Setup survives recreation and external browser/Settings handoffs, can be skipped without nagging, and remains safely re-runnable from **Settings → Assistant setup** without resetting data or signing out.
+- **v0.6.6.2**: Completed the release-candidate onboarding and Settings polish pass. Onboarding now shares Look & Feel's complete Accent and conversation-bubble color catalogs, applies changes live through the existing appearance preferences, replaces redundant Continue/Skip controls with one state-aware navigation action, and confirms manual setup exits through Orbit's hardened dark dialog path. The Connect Orbit step keeps ChatGPT recommended while making the existing private HTTPS-relay fallback discoverable without storing raw OpenAI API keys. **AI & account** now expands the active provider's existing configuration in place; changing providers never signs out or deletes the securely stored ChatGPT session, so switching back immediately restores the real connected-account state. Relay configuration moved out of Advanced, and Diagnostics now has its own Advanced card and developer-tool description. Claude and Gemini remain future roadmap notes only.
+- **v0.6.6.3**: Kept onboarding's Quick Access page self-contained by replacing the misleading Routine-tile Settings escape with clear later-setup guidance while preserving the Ask Orbit tile flow. Expanded **Choose what Orbit can do** into grouped, direct setup for notifications, microphone, approximate location, flashlight, Notification Intelligence, brightness, Do Not Disturb, contacts, precise timing, location automation, and trigger alerts. Runtime permissions now request or open Orbit's app settings directly; special access opens the relevant Android screen through a shared capability-routing helper used by onboarding and the full Capabilities dashboard. Screen text and Screenshot controls now update their existing Orbit preferences inline. Returning from Android Settings re-renders the persisted onboarding step with current Ready/Needs access/Off state, while the full Capabilities dashboard remains an optional secondary destination. No new Android capability, provider, authentication, or Routine behavior was added.
+- **v0.6.6.4**: Regrouped the existing **Use true black AMOLED backgrounds** control with Accent in onboarding and Look & Feel while preserving live appearance propagation. Fresh-install **Skip setup** now uses the same hardened destructive-action styling as manual **Exit setup**. Added a silent, non-blocking Orbit ignition micro-celebration to the final onboarding screen: one gentle Orbit-mark pulse, eight current-accent particles, and one light haptic when enabled.
+- **v0.6.6.5**: Made the final onboarding Orbit ignition celebration clearly visible while keeping it brief and restrained. The Orbit mark now has a stronger single pulse, a subtle expanding accent ring, and larger accent-derived particles that travel farther before fading. The effect remains silent, non-blocking, reduced-motion aware, and limited to one play per deliberate completion-page entry.
+- **v0.6.7.0**: Added native **Screen Selection** as a precision companion to the existing one-tap **Use screen** flow. One shared editor now supports touch-friendly Crop creation, move/edge/corner resize, accent-based freehand Mark up, Undo, Reset, combined Crop + Mark up rendering, and a full-screen fallback without introducing another screenshot-capture system. The Side-button assistant adds a compact Select action that preserves its current session and previews the final selected image; full chat now groups Screen into **Use full screen** and **Select or mark area**, returning selections to the existing attachment tray. Selection always reopens from the immutable original screen, temporary files remain app-private and are cleaned, and selected-region requests intentionally exclude extracted text from outside the chosen image while retaining app identity and untrusted-content safeguards.
+- **v0.6.7.1**: Polished Screen Selection after real-device testing: the Side-button action is now a clearly tappable **Select area** pill with its launch state contained in the button, preview letterboxing blends into the Orbit page, Crop and Mark up use a centered two-option segmented control, and Undo appears separately only when useful. Added a silent five-hour foreground update check on normal companion-app launches, respecting Update notifications, onboarding, and the existing one-automatic-alert-per-version marker; discovered releases open through the established updater rather than downloading automatically. Update release notes now use a reusable native Markdown subset with headings, emphasis, lists, code, and links while retaining Orbit's hardened dialog surface, live Accent, selected font, AMOLED behavior, and Force Dark protection. Replaced the historical README with a focused public product, installation, setup, privacy, status, and changelog page. Rich Chat rendering was not added.
+- **v0.6.7.2**: Fixed the Side-button Screen Selection return flow so **Use selection**, **Use full screen**, Cancel, and Android Back automatically restore the same existing Orbit overlay instead of leaving the user at the underlying app. A marked internal `VoiceInteractionSession.show(..., 0)` path now bypasses fresh-invocation resets and new assist/screenshot capture, preserving the conversation, intelligence mode, typed composer text and keyboard state, original source screenshot, attachment state, foreground app, and screen-context generation while keeping voice capture safely stopped. Bridge results are delivered once after the temporary editor Activity begins finishing, launch failures clean their callback, and stale in-process callbacks expire. Grouped **Use screen**, **Select area**, and a larger 56 × 40 dp rounded preview at the context bar's right edge; the selected result remains visible and the preview can reopen selection from the immutable original. Modestly reduced editor chrome spacing to enlarge the screenshot while retaining the v0.6.7.1 segmented tools, blended letterboxing, coordinate mapping, and full-chat Activity-result flow. Rich Chat was not added.
+- **v0.6.7.3**: Applied final Screen Selection layout polish from successful device testing. The overlay's compact right-anchored context group now orders the existing 56 × 40 dp thumbnail before **Use screen / Attached** and keeps **Select area** nearest the card edge, with tighter spacing but unchanged touch targets, Accent styling, preview behavior, and session return flow. Reclaimed roughly 22 dp of portrait editor height from outer padding and non-interactive margins, and explicitly collapses the Undo container when unused, making the fit-centered screenshot slightly larger without changing its aspect ratio, bitmap transforms, Crop/Mark up controls, or full-chat behavior.
+- **v0.6.8.0**: Added one shared native rich-response renderer for completed assistant replies in full chat and the Side-button overlay. Responses now support headings, bold, italics, strikethrough, readable bullet/numbered lists, restrained blockquotes, horizontal rules, tappable HTTP(S) links, padded horizontally scrollable code blocks with Copy, and horizontally scrollable native tables while retaining raw Markdown in conversation history and lightweight text during streaming. Added native inline rendering for up to four real HTTPS Markdown images per response, with alt text, bounded asynchronous loading/downsampling, redirect and private-network rejection, failure/open states, and a bounded app-private cache; Orbit does not independently search for images. Brought both composers to **Attach + text + Voice + Send**: full chat now uses pause-friendly Voice Beta with partial transcripts, attachment-aware voice submission, and preference-controlled spoken replies, while the overlay adds Camera, Gallery, File, Screen, and Clipboard routes, a compact one-attachment tray, and a temporary picker bridge that restores the same conversation, input, mode, and screen session. Screen Selection, source actions, Memory/action cards, provider requests, and the one-explicit-attachment request limit remain on their established paths.
+- **v0.6.8.1**: Added one shared preferred **Gallery app** setting for full chat and Side-button image attachments, with compatible installed-app discovery and a safe System picker fallback. Moved future product direction out of Permissions & capabilities into a dedicated future-only **Roadmap** under About & updates. Added Small, Default, Large, and Extra large chat-content sizing across user messages and the shared rich Markdown renderer in both chat surfaces; Default preserves v0.6.8.0 typography, hierarchy remains proportional, and the setting is included in Backup & Restore. File picking, attachment security, Screen Selection, Voice Beta, updater verification, and application behavior outside these focused surfaces are unchanged.
+- **v0.6.8.2**: Added the existing chat text-size preference to onboarding's Conversation style controls, and added the shared preferred Gallery app plus new Weather units controls to onboarding's Everyday preferences. Moved Gallery app from Conversations to the second major section under Personalization & data, directly after Weather. Added System default, Fahrenheit, and Celsius weather-unit choices while preserving Orbit's existing locale-based behavior by default and applying the selected temperature/wind system consistently to current conditions and forecasts; the non-sensitive units preference is included in Backup & Restore. Replaced developer/user-specific weather-location examples with neutral Naples, Florida and Tokyo, Japan copy without changing saved locations. Narrowed a plausible Samsung Side-button release-time race by ignoring only `onCloseSystemDialogs()` callbacks received during the first 450 ms of a fresh external assistant show; explicit dismiss controls, genuine `onHide()` lifecycle handling, and internal Screen Selection/picker resumes remain unchanged.
+- **v0.6.9.0**: Added three native home-screen widgets: compact **Ask Orbit** opens the normal full chat ready to type; configurable **Run Routine** launches one selected saved Routine through the existing Routine runner and Action Engine; and configurable **Quick Actions** provides two or four launcher slots for Ask Orbit, a selected Routine, flashlight toggle, or the normal reminder-creation chat flow. Widget configuration uses Orbit's shared Accent, AMOLED, typography, and motion systems. Widgets refresh after appearance or Routine changes, show a safe reconfiguration state when a Routine is deleted, expose only explicit labels, use immutable explicit PendingIntents, and validate all local widget/Routine references rather than accepting arbitrary action payloads.
+- **v0.6.9.1**: Moved direct widget Routine and flashlight actions from visible Activity trampolines to a validated, lifecycle-safe headless receiver path, so supported actions execute without briefly opening Orbit and Routines that launch another app go directly to their target. Ask Orbit, reminder creation, confirmations, and permission/setup needs still open only the UI they require. Quick Actions configuration now waits for an explicit **Choose Routine** tap instead of automatically opening a poorly anchored selector, and uses Orbit's polished modal Routine chooser. Assistant setup now explains how to long-press an existing widget and choose the launcher's Settings, Edit, or Configure action.
+
+## 0.7 series
+
+- **v0.7.0.0**: Shipped **Orbit Extensions v1** with a dedicated Settings manager and versioned declarative `.orbitext` packages. Extensions may add only explicitly reviewed **Open URL** and bounded **HTTPS GET/POST** actions; manifests are validated as untrusted input and cannot load code, launch arbitrary Android components, access files, or receive Orbit chats, Memory, screen context, credentials, or permission state. Installation uses Android's system file picker and requires a review of identity, actions, and contacted endpoints before explicit confirmation. Enabled extension actions appear under an Extensions group in the normal Routine editor and execute through stable extension/action IDs on the existing `Routine → OrbitActionEngine` path, including compatible headless widget, Quick Settings, time-trigger, and location-trigger runs. Disabled, removed, malformed, or missing actions stop safely with **Extension action unavailable** instead of crashing or mutating the Routine. Safe manifests and enabled state are included in Backup & Restore while credentials and secrets remain unsupported and excluded. Added the public Extensions schema/security documentation plus a harmless opt-in sample manifest, and advanced both roadmaps to natural-language Routine creation and richer automation/branching.
+- **v0.7.0.1**: Added three official first-party Extensions v1 manifests: **Orbit Web Tools**, **Developer Tools**, and **Quick Links**. They provide reviewed public HTTPS links plus one harmless unauthenticated HTTPS GET action and behave exactly like third-party v1 manifests through install review, enable/disable/remove, stable Routine references, `OrbitActionEngine`, compatible Routine widgets, the Quick Settings Routine tile, and automatic time/location execution. The Extensions screen now explains that these reference files are never auto-installed and links to their public repository location without bypassing Android's file picker or explicit install confirmation. Documentation now identifies every first-party manifest and its purpose. Existing disabled, removed, missing-action, timeout, non-2xx, offline, and malformed-manifest states retain their safe concise results; no new extension capability, auth, secrets, scripting, or executable plugin support was added.
+- **v0.7.0.2**: Added direct in-app installation for the three official first-party extensions while preserving explicit review and confirmation. Their read-only packaged manifests pass through the same size limits, schema/action/ID/URL validator, install review, private store, and duplicate-ID protection as external files; no privileged extension path or silent default installation was introduced. Kept Android's file-picker import for user-created, community, and custom `.orbitext` files in a distinct Import section. Clarified installed/not-installed first-party state and improved installed-extension controls: Enable is a positive Accent action, Disable uses a subdued warning treatment, and Remove has a separate restrained destructive treatment, with text labels and accessible descriptions retained across AMOLED, app fonts, and Accent choices.
+- **v0.7.1.0**: Added backward-compatible **Orbit Extensions schema v2** with Orbit-rendered setup fields, encrypted Android Keystore-backed extension secrets, configurable non-secret Routine action parameters, restricted structural placeholders, and bounded manifest-declared request headers for secure authentication. Final rendered endpoints remain public HTTPS-only, are validated and DNS-checked immediately before execution, never follow redirects, and retain bounded request/response limits. Added ordinary generic-engine **Discord Webhook** and **ntfy Notifications** first-party extensions without service-specific executors. Safe manifests, enabled state, and non-secret configuration remain portable through Backup & Restore while secrets never enter backups or Routine storage; restored secret-backed extensions return as **NEEDS SETUP** with Routine references preserved. Existing schema-v1 manifests continue unchanged. Fixed the Extensions manager rebuild so Enable, Disable, Remove, setup, and related card refreshes preserve the current scroll position instead of jumping to the header.
+- **v0.7.1.1**: Fixed a critical **Extensions manager launch/crash regression** by isolating malformed or incompatible stored entries and expected configuration-state failures at their individual load/render boundaries. Mixed schema-v1/v2 state now opens reliably, unreadable required secret state safely appears as **NEEDS SETUP**, and a damaged entry remains inert as **Extension unavailable** until the user explicitly removes it. Valid neighboring extension data and existing Routine references are preserved, all five bundled manifests are independently validated, configured Extensions v2 functionality remains intact, and Enable/Disable/Remove refreshes continue preserving scroll position.
+- **v0.7.1.2**: Rebuilt Extensions manager initialization around the last known-good v0.7.0.2 screen shell and fixed the critical real-device launch crash caused by an Android-incompatible schema-v2 placeholder expression. Orbit now displays the stable v1 manager surface before loading v2, defers secure setup-state reads until Configure or action execution, isolates malformed extension/configuration entries, and provides a safe recovery screen if later rendering fails. Existing schema-v1/v2 data, encrypted setup values, Routine references, configured Extensions v2 behavior, and scroll-position preservation remain intact.
+- **v0.7.1.3**: Fixed the Routines screen losing its scroll position when a routine was run. Pressing **Run** no longer returns the list to the header: the run panel above the saved routines can appear and grow with per-step results, and the routine cards can be rebuilt, while the visible routines stay anchored where they were. The same preservation now covers every path that rebuilt the list, including returning to Routines after an action opened another app or a permission prompt, Duplicate, Delete, and automatic trigger runs, so a routine farther down the list can be run and re-run without scrolling back each time. Routine execution, the Action Engine path, confirmations, per-step results, Retry from failed step, scheduled-continuation status, and the Routines layout are unchanged.
+- **v0.7.2.0**: Added **pinned Routines** so frequently used automations stay within reach. Pin or unpin a routine from its existing options menu on the Routine card, and pinned routines move to the top of the saved list while both the pinned and unpinned groups keep their existing relative order. Pinned cards show a small Accent-tinted pin with an accessible description; unpinned cards are unchanged, so nothing new clutters the screen. Pinned state is stored on the routine itself in the existing Routine storage, so it survives leaving the screen, app restarts, and normal Orbit updates, travels through Backup & Restore with the rest of the Routine data, and is cleaned up automatically when a routine is deleted. Existing routines upgrade as unpinned with no migration step. Pinning never alters a routine's actions, triggers, widgets, extension actions, run history, or execution behavior, editing a pinned routine keeps it pinned, a duplicate starts unpinned, and pinning, running, Duplicate, and Delete all continue to preserve the list's scroll position.
+- **v0.7.2.1**: Added a user-facing **Routine run history** for understanding and troubleshooting automations, reached from a **Run history** entry beside Templates and Custom Commands on the Routines screen. Each recent run shows the routine name, when it ran, a Succeeded or Failed badge, how it was started (manually, by an automatic trigger, or from a widget or Quick Settings tile), and how many steps completed. A failed run names the step that stopped it in the form **Failed at action 2: Discord Webhook** together with Orbit's own concise result message, so Extension and multi-step routines are far easier to diagnose. History is recorded by the existing manual, trigger, and widget/tile execution paths from the completion callback each already implements, so routine execution itself is unchanged; runs started by asking Orbit for a routine by name in chat are not recorded, because that path hands its actions to the shared chat action pipeline. Entries store only already user-facing text and never routine parameters, extension endpoints, headers, tokens, or configured secrets, and are bounded to the most recent 80 runs on the phone using the limit Orbit already applies to stored action results. **Clear run history** uses Orbit's restrained destructive confirmation and removes execution records only, leaving routines, pinned routines, triggers, and actions untouched. The screen follows Orbit's existing card, typography, Accent, AMOLED, and back-navigation conventions. Pinned routines, routine ordering, scroll-position preservation, Duplicate, Edit, Delete, triggers, widgets, Quick Settings, and Extension actions are unchanged, existing Routine data stays compatible, and no migration step is required.
+- **v0.7.2.2**: Added **drag-to-reorder Routines**. Press and hold a Routine card to lift it, drag it up or down while the surrounding cards slide out of the way, and release to save its new position; the list scrolls on its own when the card reaches the top or bottom edge. Reordering uses Android's own drag framework and the existing Routine storage, so manual order is simply the saved order and travels through restarts, Orbit updates, and Backup & Restore with no migration step and no change to the backup format. Ordering respects pinned Routines: a card can be reordered freely inside its own pinned or unpinned group and a drag is naturally constrained to that group, so crossing the boundary can never pin or unpin anything. **Pin** and **Unpin** remain the only way to change pinned state, and a newly pinned or unpinned Routine keeps its manual position within its new group instead of jumping to the end. A subtle haptic marks the lift and each position change, honouring the existing Haptics preference, and motion is skipped when the system has animations turned off. Duplicating now places the copy directly after the Routine it came from rather than at the very bottom. Also polished the Routines list: pinning and unpinning now slide the card to its new position instead of the list snapping, long Routine names ellipsize cleanly beside the pin indicator, and the tip line mentions press-and-hold. Routine execution, the Action Engine path, run scroll-position preservation, run history, triggers, widgets, Quick Settings, Extension actions, Edit, Duplicate, and Delete are unchanged, and existing Routine data stays compatible.
+- **v0.7.2.3**: Replaced the generic thinking state with a **signature Orbit thinking animation** and began Orbit's motion language. A compact orbital indicator now marks every request: a softly breathing core with two particles travelling offset, mildly elliptical orbits at different speeds, dimming and shrinking as they pass behind the core so the motion reads as dimensional rather than as a spinning icon. Full chat previously showed a static three-dot bubble and the Side-button overlay showed bouncing dots; both surfaces now use the same indicator, sized to each. Every colour derives from the current Accent, so all accents, Dynamic accent, light, dark, and AMOLED follow the rest of the app. Thinking now resolves into the answer instead of popping: the particles collapse toward the core and the indicator fades exactly as the response is placed, so replies stay readable the instant they arrive and nothing waits on animation. Newly arriving messages and the first streamed content settle in with a restrained fade, while reopening a conversation never replays motion across the whole history. Chat auto-scroll now follows new content only while the latest messages are already on screen, so scrolling up to read older messages is no longer interrupted by streaming updates. Overlay status text cross-fades between Listening, Thinking, and Ready rather than snapping. The indicator is a lightweight custom view that allocates nothing per frame, draws from the animation clock, and stops by construction on completion, failure, cancellation, overlay dismissal, rebuild, or screen destruction, so a thinking animation can never be left running behind a finished response; a still frame is shown when system animations are off. Added shared `UiKit` motion timings, easing, and content-entry helpers as the base for later polish. AI behavior, prompts, streaming, background completion, device actions, memory, voice timing and recognition, Routines, Extensions, and update infrastructure are unchanged.
+- **v0.7.2.4**: Fixed the **flash when changing appearance in Settings → Look & Feel**. Changing **Your bubbles**, **Orbit bubbles**, or **App font** replaced the whole Settings content view, which emptied the window's content frame for a frame and let the window background show through before the rebuilt page was measured and drawn. Orbit now distinguishes appearance that is baked into views when they are built from appearance that can be applied to the views already on screen: only Accent and AMOLED rebuild, because they change Orbit's shared surface colours. App font is now re-applied to the existing hierarchy through Orbit's existing typography pass, and conversation bubble colours change nothing Settings draws at all, since their selectors already update their own labels. Those three changes no longer replace, rebuild, or reset anything, so there is no flash, no blank or black frame, no controls disappearing, no old colour reappearing, and no scroll movement. The remaining Accent and AMOLED rebuild was hardened as well: the window is painted in Orbit's own surface colour so no default decor or AMOLED-black frame can ever show through, and the previous scroll offset is restored before the rebuilt page is first drawn instead of a frame later. Live customization is unchanged — appearance still updates immediately without leaving Settings — and Accent, Dynamic accent, AMOLED, all palettes, independent user and Orbit bubble colours, chat text size, fonts, and the current section and scroll position all continue to behave as before.
+- **v0.7.2.5**: Continued the 0.7 polish phase with a **Settings and navigation motion pass**. Orbit screens previously used Android's stock activity transition, so opening a Settings category, entering a subpage, and pressing Back all moved differently from the rest of the app; two Orbit window animations had been added earlier but were never wired to anything. Navigation now uses one restrained Orbit transition throughout: a page arrives with a short fade and a very small upward settle while the screen behind it stays opaque underneath, and Back plays the exact inverse so returning reads as the reverse of the way in. The timing mirrors Orbit's shared motion language rather than introducing new durations, and Android skips window animations entirely when system animations are off, so reduced motion needs no special handling and navigation always completes. Fixed a long-standing latent cause of white flashes: Orbit's theme never set a window background and inherited the light Material default, so any frame before a page had drawn — launching, navigating, or rebuilding — could show white behind Orbit's dark UI. The window is now painted Orbit's own surface colour. Removed the two unused animation resources these replace. Invisible bridge activities stay instant and the Side-button overlay, which is not an activity, is unaffected. Orbit dialogs and popup menus already shared one restrained fade-and-scale transition and were deliberately left alone. Verified the v0.7.2.4 appearance fix remains intact: App font, Your bubbles, and Orbit bubbles still never rebuild the Settings hierarchy, Accent and AMOLED still rebuild under control with scroll restored before the page is drawn, and live appearance updates remain immediate. No Settings layout, wording, category structure, or functionality changed.
+- **v0.7.2.6**: Made page-transition style a customization choice. Added **Page transitions** under a new restrained **Advanced** heading at the bottom of Settings → Look & Feel, using Orbit's existing selector styling, with three options. **Slide** is the default and restores the horizontal interaction Orbit used before v0.7.2.5, refined rather than exaggerated: a destination page enters from the right while the page behind it drifts a short way left, and Back sends the page back out to the right as the previous one returns from the left, so right-to-left always reads as going deeper and left-to-right as going back. **Fade & settle** keeps the v0.7.2.5 transition unchanged as an option. **None** changes pages immediately with no Orbit transition. Slide applies to fresh installs and to anyone updating who has never chosen a style, so v0.7.2.5's fade is not silently retained as the effective default. The choice applies per page window from the one shared place every full-screen Orbit page already routes through, so a new selection takes effect on the very next navigation with no restart, no Settings rebuild, no flash, and no scroll movement, while invisible bridge activities stay instant and the Side-button overlay is untouched. The preference is stored with Orbit's other appearance settings and travels through Backup & Restore; an unrecognised value or a backup taken before this release falls back to Slide with no migration step. Android's own animation settings still apply, so every style degrades to an immediate navigation when system animations are off. The v0.7.2.4 appearance-refresh fix and the v0.7.2.5 window-background fix both remain intact, and Page transitions never forces a Settings hierarchy rebuild.
+- **v0.7.2.7**: Focused Side-button overlay refinements. The **drag handle is now much easier to grab**: the visible handle and every layout bound are unchanged, but a touch delegate extends the grab area about 10dp above and 14dp below the handle row for roughly a 46dp target, reclaimed from space that was already there rather than by reserving any, so the header sits exactly where it did. Header controls still take their own taps first, and the swipe-up stretch, swipe-down dismissal, drag resistance, and 58dp commit threshold are untouched. **Fixed the overlay-to-chat handoff playing a second animation**: after the overlay expanded into the conversation already on screen, the full chat also ran the selected page transition, so one continuous gesture looked like an expansion followed by an unrelated page sliding in. The handoff now carries a one-shot flag on its own launch Intent that suppresses the page animation before the chat's first visible frame, so the overlay's expansion is the whole transition and the conversation is simply there. The flag is consumed on arrival and never touches the stored preference, so Slide, Fade & settle, and None continue to apply to all ordinary navigation and repeated handoffs cannot disable them. Added an **audio-reactive listening microphone**: while Orbit is listening, a soft accent ring and halo behind the mic respond to real `onRmsChanged` levels from the speech recognizer, rising quickly with the voice and decaying gently through pauses, with the listening tint now pulled toward the current accent instead of a disconnected fixed red. Levels are recorded as a target and eased on the indicator's own frames, so recognition callbacks never start an animator or allocate, and frames are scheduled only while listening. The mic returns to its ordinary rippled appearance whenever listening ends, fails, moves into Thinking, or the overlay is dismissed or destroyed, and a static ring is shown when system animations are off. The thinking animation, state cross-fades, response entry motion, conversation continuity, background completion, keyboard behavior, attachments, and device actions are all unchanged.
+- **v0.7.2.8**: Repaired the **Side-button overlay to full-chat handoff**, which still broke into visibly separate stages after v0.7.2.7. The overlay launched the Chats screen, which built and drew its full list, and only then reached the conversation through a second, ordinary navigation that played its own right-to-left page transition; v0.7.2.7 suppressed the animation on the Chats screen but never on the chat that actually rendered the conversation. The overlay now launches the conversation directly, so the Chats screen is never created or drawn during a handoff and there is no second navigation or slide at all. The one-shot suppression flag moved onto that launch, still per-Intent and consumed on arrival, so Slide, Fade & settle, and None continue to govern every other navigation and repeated handoffs cannot disable them. Removed the black intermediate frame by holding the overlay until the conversation has genuinely drawn rather than blanking it on a fixed timer while the destination was still starting up; a failsafe releases the overlay regardless, so it can never be left stuck. Fixed the stutter at the commit point: the expansion rebuilt the sheet's gradient background from scratch on every animation frame, allocating a new drawable and forcing a full background rebuild around fourteen times during the gesture, and now mutates a single drawable so the sheet continues smoothly from where the drag left it. The launch reuses the existing task and clears above any existing chat rather than stacking duplicates or reusing one still showing a different conversation, so cold and warm app states behave the same and Back stays sensible. The enlarged handle touch target, visible handle, drag resistance, 58dp commit threshold, swipe-down dismissal, listening microphone halo and its lifecycle, conversation continuity, and background completion are all unchanged.
+- **v0.7.2.9**: Made the Side-button overlay **physically stretch open under your finger**. Dragging the handle upward previously only slid the whole fixed-size sheet up by at most 92dp and at well under half the speed of the finger, so nothing actually grew and the real expansion only began after release. The conversation area now gains height one-to-one with the drag: because the sheet is sized to its contents and anchored to the bottom of the screen, giving the conversation room pulls the sheet's top edge up under the fingertip while the bottom stays put, and the handle, header, and composer keep their normal proportions instead of anything being scaled. The geometry is a direct function of the current touch position, so the sheet expands and contracts continuously through pauses and direction changes and never latches open because the gesture once reached a particular distance, and growth simply stops once the sheet has filled the screen. The sheet's corners ease toward the squarer geometry of the full chat as it opens. Releasing below the threshold eases back from the exact height it was let go at rather than snapping, and releasing above it continues from that same height straight into the full conversation, so the pull and the completion read as one motion. Tracking is driven by touch rather than an animator, so it still works with system animations disabled, where only the settle and completion collapse to immediate. The sheet's gradient is now created once for the life of the overlay and mutated in place, so neither the live drag nor the commit allocates per frame. The v0.7.2.8 handoff is untouched: the conversation is still launched directly with no intermediate Chats screen, no second page transition, and dismissal still waits for the destination to draw with its failsafe intact. The enlarged handle target, visible handle, swipe-down dismissal, header controls, listening microphone halo, thinking state, and background completion are unchanged.
+- **v0.7.2.10**: Polished the **full-screen chat composer and its voice states** to match the newer Side-button overlay language. Full chat showed listening as a flat fixed red with no feedback, while the overlay had gained an accent-derived, audio-reactive indicator in v0.7.2.7; the two surfaces now share one implementation. The composer microphone uses the same Orbit listening halo, driven by real recognizer audio levels that are now forwarded through the shared voice controller as presentation-only information, and its listening tint is pulled toward the current accent rather than a disconnected red. Recognition, pause timing, hands-free behavior, and microphone semantics are untouched. Removed the composer's remaining hard-coded colors: its outline now derives from the active accent and the placeholder from Orbit's muted tone, so the composer follows every accent, Dynamic accent, light, dark, and AMOLED like the rest of the app. **Send** is now dimmed when there is nothing to send and available as soon as there is text or an attachment, instead of always appearing active. Attach, microphone, and Send are all one consistent 44dp touch target, the composer's controls sit level with the last line of text as the field grows rather than drifting to the middle of a tall box, and the input scrolls internally once it reaches its five-line maximum so it can never take over the conversation. The microphone returns to its resting appearance on every path out of listening, including cancellation, failure, moving into thinking, and navigating away, so no active microphone state can be left behind. The v0.7.2.3 thinking animation, message entry motion and auto-scroll, the v0.7.2.4 appearance behavior, attachment functionality, keyboard and inset handling, and conversation persistence are all unchanged.
+- **v0.7.2.11**: Chat previews on the Chats screen no longer show **raw Markdown syntax**. The preview only collapsed whitespace, so response formatting such as `**Detroit Lions:**` or `## OLED vs Mini LED > **Quick takeaway:**` appeared literally on the cards. Previews are now flattened through Orbit's existing Markdown class into one clean readable line: headings, list items, quoted lines, and paragraphs become segments joined by a separator, emphasis and inline code give up their syntax and keep their words, links keep their visible text and hide the URL, table rows become their cell text, and fenced code is left out entirely, falling back to a short **Code snippet** label only when a message is nothing but code. Flattening happens before the length limit, so the card's characters are spent on words rather than on markers. The normalizer is deliberately stricter than the full renderer about what counts as formatting, so ordinary text survives untouched: mathematical asterisks such as `2 * 4 = 8 * 2`, hashtags, and identifiers such as `some_var_name` are all preserved, and an interrupted response with unclosed Markdown keeps the words it already received. Recent Chats and search results share one card path, so both show the same clean representation, and search still matches against the original message text so nothing became less findable. This is presentation only: stored messages, backups, AI responses, chat titles, conversation IDs, search indexing, and memory are unchanged, and opening a conversation still renders the complete original Markdown. Chat titles were left alone because they are derived from the user's own prompt rather than from a generated response.
+- **v0.7.2.12**: Three device-testing fixes. **The thinking animation no longer disappears into its own bubble.** With Orbit bubbles set to Accent, the orbital indicator was painted in the accent on a bubble of the same accent, leaving what looked like an empty rounded rectangle. The indicator now knows the colour it is drawn on: where the bubble already contrasts it keeps the normal accent treatment exactly as before, and where the bubble is too close to the accent it shifts onto the readable foreground Orbit already uses for text on that bubble, with enough accent mixed back in that it still reads as Orbit rather than a plain light or dark shape. The breathing core, two elliptical orbits, depth, halo, settle into the response, shared overlay and full-chat identity, lifecycle, and reduced-motion behavior are all unchanged. **Fixed the full-chat input sitting too low.** The v0.7.2.10 bottom-aligned composer left an empty or single-line field, which is shorter than the 44dp controls, resting below their centres, so the placeholder, text, and cursor looked low against the +, microphone, and Send buttons. The field now carries the same minimum height as the controls and centres its own first line inside it, so it lines up optically for any app font or text size, while taller content still grows downward and the controls stay level with the last line. **Opening the attachment menu no longer closes the keyboard.** Orbit's shared menu popup is focusable, which took input focus from the text field and made Android hide the keyboard — in the Side-button overlay that also reshaped the whole sheet the moment the menu opened. The attachment menus in both surfaces now declare that they expect the keyboard, so it stays exactly as the user left it with no hide-and-reshow flicker and no overlay resize, while outside-touch and Back dismissal are unchanged. Every other Orbit menu keeps its previous behavior. Leaving for the Camera, Gallery, or File picker still yields the keyboard as before, and Screen and Clipboard are handled without dismissing it.
+- **v0.7.2.13**: Repaired the attachment chooser after the v0.7.2.12 attempt failed on-device. That release kept the chooser in a focusable `PopupWindow` and only declared that the popup expected the keyboard. A focusable popup is a separate window, so the composer stopped being the focused editor the moment it appeared and Android tore the keyboard down with it; no window flag can keep an editor alive in a different window, so full chat still lost the keyboard, and in the Side-button overlay the chooser stopped appearing usefully at all. The chooser is now drawn inside the surface that opened it — the chat's own content frame, or the overlay session's own root — with every view in it explicitly non-focusable. The composer never stops being the focused editor, so the keyboard is simply never involved: a visible keyboard stays visible, a hidden one stays hidden, and there is no hide-and-reshow and no delay anywhere. The overlay keeps its exact keyboard-constrained geometry, and the chat's viewport, insets, and scroll position do not move. Because the chooser no longer needs a window of its own it also cannot be clipped by one or land behind the keyboard; it is positioned above the composer in both surfaces. Also fixed the overlay's stuck **"Attachment picker is opening"** state: that guard could be left set by an attachment flow that never reported back, permanently blocking the chooser for the rest of the session, and it is now cleared whenever the overlay becomes visible with nothing actually in flight. Camera, Gallery, File, Screen with its full-screen and select-or-mark options, and Clipboard are unchanged, as is dismissal by selecting an option, tapping outside, or pressing Back; Screen and Clipboard are still handled without leaving the surface or disturbing the keyboard, while an external picker may still take it as before. Removed the failed v0.7.2.12 keyboard-preserving popup mode and its misleading comments; all other Orbit menus are untouched. The v0.7.2.12 thinking-animation contrast fix and full-chat input centering both remain intact.
+- **v0.7.2.14**: Fixed the **attachment chooser being invisible in the Side-button overlay**. The v0.7.2.13 chooser was being created correctly but drawn behind the overlay sheet. Sibling views are drawn and hit-tested in Z order rather than in the order they were added, and the overlay's sheet carries a real 16dp elevation while the chooser card used a fixed 12dp and its outside-tap layer none at all, so the sheet covered both and also took their touches. This is precisely why full chat was unaffected: its host's content has no elevation, so the same card landed on top there. The chooser now raises itself above whatever the host already contains, measured from the host's own children rather than from a fixed number, with the card guaranteed above its outside-tap layer, so a later layout change cannot overtake it again. Also capped the card's placement so an anchor near the top of the host cannot push it off screen. The full chat attachment behavior confirmed working in v0.7.2.13 is untouched — that file has no changes in this release — as is the in-hierarchy, non-focus-taking architecture that keeps the keyboard exactly as the user left it, the overlay's stretch, swipe-down close, chat handoff, listening halo, thinking indicator, composer, and attachment tray.
+- **v0.7.2.15**: Fixed the Side-button overlay **always opening the system picker for Gallery**, and the silent loss of the chosen Gallery app that came with it. Two failure paths were at fault. The overlay reaches pickers through a bridge activity launched into the assistant's own task, and when launching the chosen gallery from there failed, the bridge treated that as proof the app was invalid: it erased the stored preference and fell back to the system picker. Because the preference was then gone, the full chat quietly started using the system picker too, which is why changing the Gallery setting appeared to break the overlay. Separately, simply *reading* the preference cleared it whenever resolution came back empty, so one failed lookup permanently wiped the user's selection for every surface. Reading the preference no longer rewrites it, and neither surface clears it on a launch failure, since being unable to start an app from a particular task says nothing about whether it is installed; a chosen app that cannot be resolved now falls back for that one attachment and is used again the moment it resolves. The overlay also resolves the target from the shared preference before launching and hands that exact package to the bridge, so the bridge launches precisely what the full chat would rather than re-deciding in a different task — one preference, one picker choice, on the first attempt after a change with no restart. The system picker now opens only when it is genuinely chosen or the chosen app truly cannot be resolved. The v0.7.2.14 overlay menu Z-order, the v0.7.2.13 in-window menu architecture and keyboard preservation, the thinking-animation contrast, composer centering, Markdown previews, listening halo, overlay stretch, and the chat handoff are all unchanged, and the full chat attachment flow keeps its confirmed behavior.
+- **v0.7.2.16**: Three fixes. **Side-button Gallery now opens the picker you chose, including from a cold Orbit process.** The selection was stored as a package name and resolved into an Activity later, and that lookup answered differently inside the assistant's own task, so the overlay opened the system picker instead. Choosing a Gallery app now records the exact picker Activity and action that Settings already proved works, written in one commit so a force stop cannot leave a new package beside an old component, and the overlay hands that exact component to its bridge rather than resolving anything again. Older package-only choices migrate to the exact form the first time their app can be found, and a choice that cannot be resolved is kept rather than erased or quietly turned into the system picker. An explicit Gallery choice never silently falls back: if it genuinely cannot be opened, Orbit reports **Selected Gallery app could not be opened**, keeps the preference, and returns cleanly. **Cancelling a picker no longer blocks all later attachments.** Results were delivered from Activity teardown callbacks, and a cancelled picker could return without them running, leaving the overlay convinced an attachment was still in flight and answering every later + with "Attachment picker is opening". Results are now handed over before the bridge closes, with teardown kept only as a guarded fallback that cannot deliver twice, and the overlay releases any stale attachment state whenever it becomes visible again. **What's New tracks the newest releases again.** It read GitHub's release collection and took the first entries, but that endpoint returns Orbit's tags in text order, placing v0.7.2.15 below v0.7.2.2, so the list had been frozen at v0.7.2.9 since that release. Orbit now confirms the authoritative latest release, checks recent version tags, accepts only genuine published releases, and sorts them itself by comparing version numbers, so a newly published release always appears first. Titles, dates, and notes still come from the real releases, and the offline cache still covers a missing network. **New:** after Orbit installs a verified update, the next time the companion app opens it shows a one-time **Orbit updated** prompt with a shortcut into What's New. It appears once per installed version, only in the main app, never on a fresh install or a cancelled or failed one, and never alongside an update-available prompt.
+
+## 0.7.3 series
+
+- **v0.7.3.0**: Added **natural-language Routine creation**. A new **Create with Orbit** entry sits between New routine and Templates on the Routines screen and opens a focused screen where you describe what you want — "turn on Do Not Disturb, set brightness to 20%, and lower media volume" — and Orbit turns it into routine steps. The result is a draft: nothing runs, nothing is saved, and no triggers are created. You review it in the ordinary Routine editor with the proposed name and steps prefilled, edit anything you like, and press **Save routine** exactly as for a hand-built routine; backing out leaves nothing behind. Orbit gains no new abilities from this. The planner is given a capability list generated from the existing Action Engine catalog and the currently enabled Extension actions, and every step it returns is re-validated against the same rules a manually added step passes, both when the draft is built and again when the editor receives it, so only actions you could already have added by hand can appear. Anything Orbit cannot represent is reported as **Couldn't add** rather than approximated or invented, and a request that is only partly supported still produces the steps that were valid. Scheduling and location wording such as "every weekday at 8" or "when I arrive home" is recognised and called out, with the steps still created and a note that timing belongs in Automatic triggers — natural-language triggers come in a later 0.7.3.x release. The request is a focused planning call through Orbit's existing provider: it carries only the description and safe action metadata, with no conversation history, screen context, notifications, memories, attachments, or Extension secrets, and it deliberately bypasses the local command routers so a description is planned rather than executed. Orbit's signature thinking animation shows while a draft is building, repeated taps cannot stack requests, the typed description and any draft survive a recreation, and failures — no provider configured, network problems, or malformed output — return the screen to a usable state instead of saving anything. Manual New routine and Templates continue to work with no AI configured.
+- **v0.7.3.1**: Create with Orbit now drafts automatic triggers and conditions, not just steps.
+  - Describe when a routine should run — "every weekday at 7am", "when I arrive home" — and Orbit proposes a matching trigger.
+  - Nothing is scheduled behind your back: after you save, Orbit offers to add the proposed trigger in Automatic triggers.
+  - Routines can now include an IF condition, drafted only with Orbit's existing time and location condition model.
+  - Vague timing, unknown places, and unsupported "otherwise" branches are listed under Needs attention instead of guessed.
+  - Saved-place names are matched on your phone; no coordinates or personal data are sent for planning.
+- **v0.7.3.2**: Create with Orbit now works reliably for ordinary everyday wording.
+  - Fixed supported requests such as "turn on do not disturb and set brightness to 30%" failing to produce any draft.
+  - Planning now uses its own request path, so a routine plan is no longer read as if it were a chat reply.
+  - Common formatting differences in the AI response are handled before validation, which is unchanged.
+  - An unusable planning response is retried once; the builder now says which kind of failure happened.
+  - Time, location, and IF-condition drafting from v0.7.3.1 is preserved, and a location condition now resolves your saved place.
+- **v0.7.3.3**: Voice access can now be immediate when you open the assistant overlay.
+  - Added an optional **Start listening when overlay opens** setting under Voice, context & permissions.
+  - When it is on, the microphone starts as the overlay appears, so you can speak without tapping the mic.
+  - It is separate from Hands-free voice follow-ups, so each part of the voice flow is controlled on its own.
+  - Listening looks and behaves exactly as it does when you tap the mic yourself, and you can still type instead.
+  - The setting is off by default, and full-screen chat is unchanged.
+- **v0.7.3.4**: Voice and Settings interactions now feel more natural and finished.
+  - Tapping the text box while Orbit is listening now hands control straight to typing.
+  - Words already recognised stay in the box so you can edit them, and nothing is sent behind you.
+  - Your voice settings are untouched, so the next time you open Orbit it still starts listening if you asked it to.
+  - On/off settings now use animated Orbit switches instead of small checkboxes.
+  - Switches follow your accent and AMOLED choices, and every setting behaves exactly as before.
+- **v0.7.3.5**: Conversation controls are more reliable across typing and quick device adjustments.
+  - Side-button chats stay ready for message after message instead of losing keyboard input after the first one.
+  - Full chat keeps your typing session ready when Orbit finishes responding, with no extra tap.
+  - Brightness and media volume now understand natural requests like "lower it", "a little", and "way down".
+  - Saying an exact percentage still sets exactly that percentage.
+- **v0.7.3.6**: A focused reliability hotfix for text input.
+  - Fixed a crash that could happen as soon as you tapped the text box in the Side-button assistant.
+  - Side-button chats stay ready for consecutive typed messages.
+  - Full chat still keeps your typing session ready between responses.
+  - Voice behaviour and relative brightness and volume commands are unchanged.
+- **v0.7.3.7**: Orbit understands more of the everyday ways you ask for things it already does.
+  - Notification questions now understand shorthand like "notif" and "notifs", plus more catch-up wording.
+  - Orbit Memory recognises more natural ways to view, save, update, and explicitly remove memories.
+  - Timers, alarms, Do Not Disturb, and app launches accept more ordinary phrasing.
+  - Questions about how notifications or timers work still get a normal answer instead of an action.
+  - Routines, Custom Commands, typing, and voice behaviour are unchanged.
+- **v0.7.3.8**: A focused reliability update for continuous text conversations.
+  - Side-button chats stay genuinely connected to your keyboard across consecutive messages.
+  - Full chat stays ready for your next message the moment Orbit finishes responding.
+  - Replies that run a device action no longer leave the text box unable to accept typing.
+  - Dismissing the keyboard yourself still ends typing, and Orbit will not reopen it.
+  - Voice, notification, Memory, and device-command behaviour are unchanged.
+  - Superseded by v0.7.3.9, which found the real cause and reversed this release's approach.
+- **v0.7.3.9**: Typing now works across consecutive messages, verified on real hardware.
+  - Side-button chats accept message after message without tapping the text box again.
+  - Full chat is ready for your next message as soon as Orbit finishes replying.
+  - Automatic scrolling to a new reply no longer takes focus away from the text box.
+  - Removes the keyboard problem introduced in v0.7.3.8.
+  - Adds a signed test-build path so hardware-specific fixes are proven on a phone before release.
+
+## 0.7.4 series
+
+- **v0.7.4.0**: A conversational Voice and interaction polish update.
+  - Voice conversations handle follow-ups and interruptions more reliably, so an interrupted reply no longer reopens the microphone behind you.
+  - Brightness and media volume understand exact changes such as "lower brightness by 10%".
+  - A short follow-up like "a little more" can continue the last device action when the target is unmistakable.
+  - Orbit's animated switches now give one light tap of feedback whenever haptics are on.
+  - The typing and focus behaviour verified in v0.7.3.9 is unchanged.
+- **v0.7.4.1**: Links stay readable, and you can now stop a reply while Orbit is still writing it.
+  - Links in Orbit's replies stay visible against every accent and conversation-colour combination.
+  - The Send button becomes Stop while a reply is being generated, with a new switch to turn that off.
+  - Stopping keeps whatever Orbit had already written, ready to copy or regenerate, rather than showing an error.
+  - A stopped reply can no longer finish later, run a delayed device action, notify you, or speak.
+  - Typing, Voice, and the rest of the composer behave exactly as they did in v0.7.4.0.
+- **v0.7.4.2**: A reliability and diagnostics update for rare Side-button overlay startup failures.
+  - Added persistent Side-button launch diagnostics, so a rare overlay startup failure leaves evidence behind when it actually happens.
+  - Launch traces survive process restarts, force stops, and reboots, and are copied from the hidden Diagnostics screen.
+  - Each launch is classified as complete, dismissed, an internal transition, incomplete, or an exception, without guessing at a cause.
+  - The trace records lifecycle stages and state only: no message, voice, screen, or clipboard content is ever stored.
+  - Updated the in-app Roadmap so already-shipped Create with Orbit, Run history, and quick-access work is no longer listed as upcoming.
+  - Typing, Voice, link readability, and Stop Generating behave exactly as they did in v0.7.4.1.
+
+## 0.7.5 series
+
+- **v0.7.5.0**: Routines can now branch: an IF condition can have an ELSE path that runs instead.
+  - Add an **ELSE path** to any IF condition, choosing how many steps belong to each side.
+  - Exactly one path runs, then the routine continues with its remaining steps as usual.
+  - The editor labels every step with the path it belongs to and refuses to save a half-defined branch.
+  - Branching works the same way for manual runs, widgets, tiles and automatic triggers, and a step on the untaken path never delays a background run.
+  - **Create with Orbit** can draft a simple "otherwise" from a description, and says so when a request needs branching Orbit does not support.
+  - Existing routines, typing, Voice, Stop Generating and the Side-button launch diagnostics are unchanged.
+- **v0.7.5.1**: Routine branching is now authored as two visible paths instead of step counts.
+  - An IF condition is one block showing its **THEN** and **OTHERWISE** paths, so what runs when is visible at a glance.
+  - Add actions straight to either path; Orbit works out the branch boundaries itself.
+  - An IF with no alternative shows **None** under OTHERWISE, and removing the last one returns it there.
+  - Reordering stays inside its own path, and moving an IF carries both paths with it.
+  - Existing routines open in the new layout unchanged, and how every routine runs is exactly as it was.
+- **v0.7.5.2**: Fixed Remove branch doing nothing when the branch already contained actions.
+  - **Remove branch** now works on a branch that holds THEN or OTHERWISE actions, where it previously did nothing at all.
+  - A branch with actions asks for confirmation first, and nothing is removed until you tap Remove.
+  - Cancelling leaves the routine exactly as it was; confirming removes the condition and both paths and nothing else.
+  - A branch with no actions is still removed straight away, and every other branching behaviour is unchanged.
+
+- **v0.7.5.3**: Fixed a rare case where the Side-button overlay appeared and then vanished on its own.
+  - Orbit could briefly appear and immediately disappear when opened over another app.
+  - Closing work left behind by an earlier overlay can no longer close a newly opened one.
+  - A closed overlay no longer reacts to system close requests that no longer concern it.
+  - Overlay diagnostics no longer mislabel an unexpected disappearance as a close Orbit asked for.
+  - Normal closing, swipe-down, tapping outside, and Voice behaviour are all unchanged.
+
+## 0.7.6 series
+
+- **v0.7.6.0**: Added Smart follow-ups, so hands-free Voice only reopens the microphone when Orbit is waiting for an answer.
+  - Orbit now reopens the microphone after speaking only when its reply genuinely asks you something.
+  - A clarification, a choice, a confirmation, or a request for a missing detail all keep listening.
+  - A finished answer, a completed action, or an offer of more help now simply stops.
+  - Turn Smart follow-ups off to keep the previous behaviour of always listening again.
+  - Start listening when the overlay opens stays separate, and interrupted replies still cannot reopen Voice.
+
+- **v0.7.6.1**: Fixed timer confirmations using phrases like "20 minutes timer".
+  - Timer confirmations now read naturally, such as "Setting a 20-minute timer."
+  - Chained commands and Routine step summaries use the same corrected wording.
+  - Ordinary durations elsewhere still read normally, such as "20 minutes".
+  - Compact action titles such as "Timer · 20 minutes" are unchanged.
+  - Timer behaviour itself is untouched: only the wording changed.
+
+- **v0.7.6.2**: Added a Jump to latest control in full chat, so you can return to the newest messages without scrolling the whole conversation.
+  - After you scroll up far enough that the latest messages leave the screen, a compact down-arrow appears just above the text box.
+  - Tap it to glide back to the newest message, with the same light haptic used by other Orbit controls.
+  - The control disappears on its own when you reach the bottom, including if you scroll back yourself.
+  - It follows the current accent and stays readable in dark, AMOLED, Dynamic, and custom colours.
+  - The Side-button overlay, typing, Voice, and how new replies follow the conversation are unchanged.
+
+- **v0.7.6.3**: Refined message actions so Copy and Regenerate feel like part of the conversation, and your own messages can be copied too.
+  - Copy and Regenerate under Orbit's replies are easier to tap, follow the current accent, and give a light confirmation when used.
+  - Long-press one of your own messages, in full chat or the Side-button overlay, to copy it with Orbit's usual menu.
+  - Copying takes the real message text, including long and Markdown replies, without labels or extra chrome.
+  - The controls stay out of the way while you scroll or type, and they do not dismiss the keyboard.
+  - Jump to latest, Voice, and how replies are generated are unchanged.
+
+- **v0.7.6.4**: Message actions now live on a long-press, so the chat stays clean until you actually want Copy, Regenerate, or Edit & resend.
+  - Long-press an Orbit reply for Copy and, on the latest turn, Regenerate.
+  - Long-press one of your own messages to copy it, or put it back in the text box as Edit & resend without sending it for you.
+  - Sending an edited message is an ordinary new message; the original stays in the conversation.
+  - The menu uses Orbit's usual surface, accent, and light haptic, and stays fully on screen.
+  - Jump to latest, Voice, and how replies are generated are unchanged.
+
+- **v0.7.6.5**: Holding a message now sends a ripple of your accent colour through it, and Edit & resend is a proper composer state.
+  - The old barely visible bubble growth is gone: your accent ripples out from where you pressed, then settles into a soft selection.
+  - The action menu is softer and easier to hit, with each action's icon on its own accent chip.
+  - Edit & resend now shows a compact "Editing previous message" pill, so it is clear why earlier text appeared in the text box.
+  - A draft you had not sent yet is kept and put back if you cancel editing, instead of being lost.
+  - Typing works straight away, Send behaves normally, and the original message stays in the conversation.
+
+- **v0.7.7.0**: Orbit becomes multi-provider: a new AI Providers screen and the first release of Orbit Local, optional on-device AI.
+  - AI & account now opens AI Providers, where you choose what Orbit thinks with: ChatGPT stays the recommended default and keeps working exactly as before.
+  - Orbit Local is new: download a compact AI model once (about 1.6 GB) and chat privately on the phone itself, even with no internet.
+  - The Orbit Local screen checks your device honestly, shows download progress, and lets you pause, resume, or delete the model at any time.
+  - Every downloaded model byte is verified before use, and the model is optional; the app itself stays lean.
+  - OpenRouter appears as an experimental preview: you can store its API key securely now, and full chat arrives in an upcoming update.
+  - Edit & resend is temporarily removed from the message menu until it works dependably; Copy and Regenerate stay.
+
+- **v0.7.7.1**: A polish pass over AI Providers and AI & account, so provider cards read cleanly and only offer actions that make sense.
+  - The AI Providers entry no longer clips its status line; the row now sizes to its content.
+  - Provider cards are easier to scan: name, status dot, one short sentence, and compact capability chips that wrap instead of cramming.
+  - Actions now follow provider state: a provider that isn't ready shows Set up instead of a misleading Use this provider button.
+  - Buttons no longer squeeze side by side; the main action is full width and secondary actions stay compact, so nothing overflows the card.
+  - When ChatGPT is already connected, the big Sign in button disappears; Sign out becomes a restrained action with a confirmation.
+  - The active provider card is clearly marked with an accent edge, a softly tinted surface, and an Active badge.
+
+- **v0.7.7.2**: Orbit Local now manages like a polished optional extension, and provider descriptions are honest about their differences.
+  - Removing the local model is a deliberate full-width management action with a clear confirmation: what gets removed, the storage freed, and that the rest of Orbit is untouched.
+  - When Orbit Local is your active provider, its model card shows Active with the same accent treatment as the AI Providers screen, instead of offering Use Orbit Local again.
+  - Download progress now shows a percentage alongside the megabytes, and a fully downloaded model is recognized again even if its saved state was lost, with no re-download.
+  - Orbit Local can no longer be chosen, or silently stay selected, without a ready model; Orbit falls back to ChatGPT so requests always have an answer.
+  - The AI Providers screen now says features and capabilities vary by provider, and Orbit Local honestly notes its compact model gives simpler answers than cloud AI.
+
+- **v0.7.7.3**: Orbit now does kitchen maths itself, so conversions and scaled quantities come back instantly.
+  - Oven temperatures convert straight away: ask for 425°F in Celsius and Orbit answers on the spot, with no internet needed.
+  - Cups, spoons, fluid ounces, millilitres, ounces, pounds, grams and kilograms all convert instantly.
+  - Fractions are understood and answered in kind, so "double 3/4 cup" gives 1 1/2 cups rather than a long decimal.
+  - Recipe quantities scale naturally, including by serving count, such as a recipe for 6 brought down to 4.
+  - Cups into grams depends on the ingredient, so Orbit asks which one instead of quietly guessing.
+  - Timers still belong to your normal Clock app, and now take a useful name from what you said, such as Steak or Potatoes.
+
+- **v0.7.7.4**: You can now choose whether Orbit updates on the Stable channel or the new Beta channel.
+  - About & updates gains an Update channel setting: Stable stays the default and the recommended choice for everyone.
+  - Beta is an explicit opt-in that offers new Orbit builds earlier, before they become normal releases.
+  - Joining Beta asks first, and explains plainly that early builds may contain bugs or unfinished behaviour.
+  - You can return to Stable whenever you like, and Orbit will never downgrade a newer build you already have installed.
+  - Beta and Stable updates are the same app, signed and verified by Orbit's permanent certificate exactly the same way.
+
+- **v0.7.7.5-beta.1**: Orbit Local becomes a genuinely optional add-on, so Orbit itself is a much smaller download.
+  - Orbit no longer carries the on-device AI engine unless you actually want local AI, which makes the app significantly smaller for everyone else.
+  - Setting up Orbit Local now installs a small Orbit Local component first, then the AI model, in one guided flow.
+  - If you already downloaded the 1.6 GB model, Orbit offers to move it across instead of downloading it again.
+  - The model and the component can be removed separately, and Orbit Local storage is now itemised on its screen.
+  - Everything is still signed and verified by Orbit's permanent certificate, and Orbit refuses any component it did not publish.
+  - This is a Beta build for real-device testing; local AI needs validating on hardware before this becomes a stable release.
+
+- **v0.7.7.5-beta.2**: Fixes Orbit Local component installation failing right before Android's installer could open.
+  - Setting up Orbit Local downloaded and verified the component correctly, then stopped at the final handover step. That step now works.
+  - The component download stays narrowly shared through Orbit's own secure file provider, with nothing else exposed.
+  - Installation problems now say which step failed, which makes Beta reports far easier to act on.
+  - No changes to the local AI model, cloud providers, or anything else in Orbit.
+
+- **v0.7.7.5-beta.3**: Fixes Orbit failing to recognise the Orbit Local component after Android successfully installs it.
+  - Android reported the component installed while Orbit still showed Not installed. Orbit can now see its own component.
+  - Returning from Android's installer refreshes the component straight away, with no restart or reinstall needed.
+  - Old component downloads are cleaned up, so installer files from earlier Betas no longer pile up in Orbit's storage.
+  - The secure installer handover added in the previous Beta is unchanged, and Orbit still refuses any component it did not publish.
+  - This is a Beta build; Orbit Local still needs real-device validation before it becomes a stable release.
+
+- **v0.7.7.5**: Orbit Local is now an optional add-on, so Orbit itself is a much smaller download for everyone.
+  - Orbit no longer carries the on-device AI engine unless you actually want local AI, which makes the app significantly smaller for everyone else.
+  - Setting up Orbit Local installs a small Orbit Local component first, then the AI model, in one guided flow.
+  - If you already downloaded the 1.6 GB model, Orbit offers to move it across instead of downloading it again.
+  - The model and the component can be removed separately, and Orbit Local storage is itemised on its own screen.
+  - Everything is signed and verified by Orbit's permanent certificate, and Orbit refuses any component it did not publish.
+  - This is the finished release of the work validated on real hardware across the 0.7.7.5 Betas.
+
+- **v0.7.7.6-beta.1**: Fixes Remove Orbit Local doing nothing, and the model download appearing frozen or wrongly paused.
+  - Remove Orbit Local now actually opens Android's uninstall confirmation, instead of closing Orbit's dialog and stopping there.
+  - Nothing is deleted until Android confirms the component is gone, so cancelling the removal leaves your model and data untouched.
+  - Orbit now says what happened: removed, cancelled, or could not be started. It never fails silently.
+  - The download progress bar and megabyte count keep advancing while the screen is open, and pick up correctly when you return.
+  - Paused now means only that you paused it; a lost connection or an interrupted download says so in its own words.
+  - The component card gains a separate Uninstall component action, and Remove Orbit Local clears everything Orbit Local uses.
+  - This is a Beta build; the removal and download fixes still need confirming on a real device.
+
+- **v0.7.7.6-beta.2**: Makes Orbit-owned warning and confirmation motion consistent throughout the app.
+  - Orbit Local removal confirmations keep Orbit's restrained fade-and-scale, then yield cleanly before Android's own confirmation appears.
+  - Android installer, permission, and picker surfaces remain native and unchanged because those windows belong to the system.
+  - Dialog and popup safeguards now catch missing styling, missing display, and conflicting motion before release.
+  - Accent, AMOLED, app-font, reduced-motion, keyboard, Back, and outside-touch behavior are unchanged.
+
+- **v0.7.7.6-beta.3**: Removes the jump from Orbit-owned dialog entrances while preserving their restrained motion.
+  - Dialog panels now appear at their final centered size, then subtly fade and settle without scaling the Android window itself.
+  - Popup menus keep their existing motion, and confirmations still yield cleanly before Android's uninstall surface opens.
+  - Reduced-motion, Accent, AMOLED, app-font, destructive-action, Back, and outside-touch behavior remain unchanged.
+
+- **v0.7.7.6**: Makes Orbit Local removal and downloads reliable, with polished dialog motion validated on Galaxy S25 Ultra.
+  - Remove Orbit Local now completes reliably and never deletes data before Android confirms that the component is gone.
+  - Separate component and model removal controls clearly explain what each action removes while keeping Orbit itself installed.
+  - Download progress remains current, and paused, waiting, interrupted, and failed states now describe what actually happened.
+  - Pause and Resume behave deterministically without overlapping workers or stalled replacement downloads.
+  - Diagnostics now reports useful Orbit Local component, removal, model, progress, and failure state without exposing private data.
+  - Orbit-owned warnings and confirmations use consistent restrained motion without Samsung's previous jumpy window entrance.
+
+- **v0.7.7.7-beta.1**: Orbit can now put events on your calendar itself, and one send no longer turns into two.
+  - Ask Orbit to add a schedule and it looks it up, asks once, then writes every event to your calendar.
+  - Orbit reports only what the calendar actually accepted: how many events were added, skipped, or failed.
+  - Events with no announced start time become all-day Time TBA entries on the right date, never invented times.
+  - Adding the same schedule twice keeps one copy of each event, and cancelling or denying permission adds nothing.
+  - One tap of Send now creates exactly one request, and a single question can no longer receive two answers.
+  - The Connect Orbit setup page now covers ChatGPT, Orbit Local, OpenRouter, and a private relay honestly.
+  - This is a Beta build; calendar writing still needs confirming on a real device.
+- **v0.7.7.7-beta.2**: Your first calendar request now finishes in one go, with the destination shown as a field you can change.
+  - Orbit asks for Calendar access before showing the confirmation, then checks which calendars you really have.
+  - You no longer have to send the same calendar request twice for it to work.
+  - The confirmation now has a Calendar field showing where events will go; tap it to pick a different calendar.
+  - Add waits until a calendar is chosen, instead of failing afterwards with no way to fix it.
+  - Event times in the preview now follow your phone's 12-hour or 24-hour setting.
+  - A calendar card that lost its destination can be recovered with Choose calendar, without asking Orbit again.
+- **v0.7.7.7-beta.3**: Auto now recognises genuinely hard questions, and long answers read properly end to end.
+  - Auto reaches Deep when a request really combines several kinds of hard reasoning, not just because it is long.
+  - Everyday questions, comparisons, and coding help stay on the faster models exactly as before.
+  - Diagnostics now names the signals behind an Auto decision instead of one vague label.
+  - Long replies fade softly into the header and composer rather than being cut off mid-line.
+  - Inline `code` terms are drawn as subtle rounded chips tinted to your bubble colour.
+  - Short answers now sit centred in their bubble, with no extra gap underneath.
+- **v0.7.7.7-beta.4**: Finishes the reading polish from Beta 3 and stops one question being asked twice.
+  - The fade at the top and bottom of a conversation is much softer, so text stays readable far closer to the edge.
+  - Punctuation after an inline `code` term now sits against it instead of floating a space away.
+  - Code chips keep their rounded shape, bubble tint, and breathing room in ordinary prose.
+  - A background request interrupted by the system no longer asks the model a second time for the same answer.
+  - An interrupted request can no longer report a failure for something that had not failed.
+  - Diagnostics now names both sides when two background runs meet, and counts runs correctly.
+
+- **v0.7.7.7**: Orbit now writes real calendar events itself, answers each question exactly once, and reads more comfortably.
+  - Ask Orbit to add a schedule and it looks it up, confirms once, then writes the events to your calendar.
+  - Orbit reports only what the calendar accepted, keeps one copy of repeated events, and marks unannounced times as Time TBA.
+  - Your first calendar request finishes in one go, with a Calendar field you can change that Orbit then remembers.
+  - One tap of Send makes one request, and an interrupted background request never adds a second answer or a false failure.
+  - Auto reaches Deep for genuinely hard questions, and setup now presents every provider with its real state.
+  - Conversation edges fade softly, inline `code` reads as a tinted chip, and short answers sit centred in their bubble.
+
+- **v0.7.7.8-beta.1**: Orbit can now tell you what it is working on while it thinks, if you want it to.
+  - A new **Thinking updates** switch in Settings, off until you turn it on.
+  - With it on, a short line beside the thinking animation says what Orbit is doing right now.
+  - Updates are brief and truthful: real progress, or a summary the model published for you to read.
+  - Private reasoning is never shown, and no update is saved to your chat, spoken, or sent anywhere.
+  - The line disappears the moment your answer starts, and clears at once if you press Stop.
+  - Fast requests are never slowed down, and Auto still picks the same model it always did.
+
+- **v0.7.7.8-beta.2**: Thinking updates are on by default, stopping a reply leaves a clear mark, and Diagnostics is far easier to read.
+  - Thinking updates now start switched on. If you turned them off in Beta 1, they stay off.
+  - Stopping a reply leaves a small interrupted Orbit mark instead of the turn seeming to vanish.
+  - Anything Orbit had already written before you stopped is kept, with the mark beneath it.
+  - The mark is still there when you reopen the chat, and clears itself when you ask something else.
+  - Diagnostics opens on a short Overview, with every detailed section one tap away.
+  - New **Copy summary** for support, alongside the full report; neither now includes your routine wording.
+
+- **v0.7.7.8-beta.3**: A stopped reply now stays with the question you stopped, and its mark is easier to see.
+  - The stopped mark stays under the question it belongs to, even after you send another message.
+  - Stop several replies in one chat and each keeps its own mark, in the right place.
+  - Anything Orbit had already written stays above its mark, and the next question starts below both.
+  - The mark is a little larger and easier to recognise, still quiet and still not an error.
+  - Diagnostics no longer reports a problem Orbit already fixed as though it were happening now.
+  - The full diagnostics report still keeps that history, clearly marked as resolved.
+
+- **v0.7.7.8-beta.4**: Follow-up questions now keep the screen or file you already shared, and stopping a reply resolves into a calmer, wider Orbit mark.
+  - Ask a follow-up about a screen you shared and Orbit still understands it, without attaching it again.
+  - The screenshot or file stays on the message you sent it with, exactly like a photo in any chat.
+  - Attaching the screen again still works and really does share the new screen.
+  - Automatic screen context is untouched: if you had Orbit always use your screen, it still does.
+  - The stopped mark is now a wide, centred orbit that visibly settles out of the thinking animation.
+
+- **v0.7.7.8**: Orbit now tells you what it is working on while it thinks, stops cleanly when you ask it to, and remembers what you already shared with it.
+  - Orbit shows what it is actually doing while it works, in a short line you can turn off in Settings.
+  - Press Stop and the turn ends with a calm Orbit mark instead of looking as though it vanished.
+  - Anything Orbit had already written is kept, and each stopped question keeps its own mark.
+  - Ask a follow-up about a screen or file you shared and Orbit still understands it, without attaching it again.
+  - What you attach stays on the message you sent it with, exactly like a photo in any chat app.
+  - Diagnostics opens on a short overview, with every detailed section one tap away.
+
+- **v0.7.7.9-beta.1**: Orbit's full app gains gestures: swipe a conversation away to Chats, and swipe chats to delete or pin them.
+  - Swipe from the screen edge in a conversation and it follows your finger, with Chats revealed behind it.
+  - Let go early and the conversation comes back; carry on and you arrive at Chats.
+  - Swipe a chat left to delete it, with a moment to tap Undo if you did not mean to.
+  - Swipe a chat right to pin it to the top, and swipe again to unpin.
+  - Pinned chats get their own section above the rest.
+  - New Gestures controls under Settings, Look & Feel, if you would rather turn either off.
+
+- **v0.7.7.9-beta.2**: The conversation swipe now really does follow your finger, Diagnostics sections copy on their own, and the Undo bar floats.
+  - Swiping back from a conversation now moves it with your finger on every phone, with Chats visible behind it.
+  - Let go early and it comes back exactly where it was; carry on and you land on Chats.
+  - Conversations opened from the Side button, a widget, or a notification now go back to Chats instead of leaving Orbit.
+  - Every Diagnostics section has its own Copy button, which works without opening the section first.
+  - The Chat deleted bar now floats above the list instead of cutting a hard edge across it.
+  - Chat swipes to delete and pin are unchanged.
+
+- **v0.7.7.9-beta.3**: Orbit's interactive swipe back now works throughout Settings and the rest of the app, not just in conversations.
+  - Swipe back from any Settings section and it follows your finger, with the Settings list appearing behind it.
+  - The same gesture now works on Memory, Routines, Extensions, Diagnostics, About & updates and Orbit's other pages.
+  - Each swipe goes back exactly one screen, revealing the real page you came from rather than a picture of it.
+  - Editors keep their existing behaviour: a screen with unsaved changes still asks before discarding them.
+  - The setting is now called Swipe to go back, and your existing choice is kept.
+  - Chat delete and pin swipes and the Side-button overlay are unchanged.
+
+- **v0.7.7.9**: Orbit now moves like an app you can feel: swipe to go back anywhere, and swipe your chats to manage them.
+  - Swipe from the screen edge and the page follows your finger, revealing the real screen you came from.
+  - It works in conversations, in Settings and its sections, and on Orbit's other pages, one level at a time.
+  - Let go early and the page comes back; carry on and you arrive where you were going. You can turn it off under Look & Feel.
+  - Swipe a chat left to delete it, with a floating Undo that no longer cuts across the list.
+  - Swipe a chat right to pin it to the top, and swipe again to unpin. Pinned chats get their own section.
+  - Screens with unsaved changes still ask before discarding them, and every Diagnostics section can now be copied on its own.
+
+- **v0.7.8.0-beta.1**: Orbit Local can now understand phone commands in your own words, and Orbit gains a calculator, wider conversions, and answers about your phone.
+  - Orbit Local can request a first safe set of device commands on its own, using an optional on-device model, so "kill the torch" or "a bit quieter" works with no internet.
+  - Orbit now does everyday sums itself, instantly and offline, including percentages, brackets and square roots.
+  - Unit conversion goes beyond the kitchen: length, distance, speed, area, and storage in both SI and binary units.
+  - Ask what your battery, brightness, media volume, ringer or Do Not Disturb is actually set to, and Orbit reads the real value.
+  - Pause, resume, and skip whatever is playing, and switch the ringer between normal, vibrate, and silent.
+  - Something quiet is hidden on the Chats screen, for anyone who finds it.
+
+- **v0.7.8.0-beta.2**: Corrects what the first Beta got wrong on the phone: status questions, reply destinations, and the hidden scene.
+  - Asking about your volume, battery or brightness now works the same way whichever wording you use, including "what is..." and "what's...".
+  - Those answers now read like Orbit talking to you rather than a status readout.
+  - A drafted reply now respects the app you are actually in, so an email reply can never open a text message to that person.
+  - When Orbit asks which participant you are, that question can no longer be mistaken for a message to send.
+  - The reply controls now belong to the final draft instead of staying on the question before it.
+  - In the hidden Launch Sequence, the orbiters genuinely follow your finger and settle back afterwards.
+
+- **v0.7.8.0-beta.3**: Several photos in one message, Share to Orbit from any app, and a confirmation before any emergency number is dialled.
+  - Open your gallery once and pick several photos; they all go in one message, in the order you chose them.
+  - Attachments now sit in a row you can scroll, and each one has its own remove button.
+  - Share text, a link, photos or a PDF to Orbit from any app and it lands in a new conversation.
+  - Shared content is never sent on its own: it waits in the composer until you add what you want to ask.
+  - Orbit will no longer open the dialer for 911 or 988 without asking you first, even if it suggested calling.
+
+- **v0.7.8.0-beta.4**: A polish pass on Beta 3, from testing on the phone.
+  - Photos in the composer are now labelled Photo 1, Photo 2, Photo 3 instead of long filenames, so more of them fit.
+  - PDFs and files keep their real names, shortened to one line so no single document fills the row.
+  - The attachment row now opens at the first photo instead of jumping to the last one.
+  - Adding more photos scrolls to the ones you just added, and removing one leaves the row where it was.
+  - The confirmation before dialling 911 or 988 is smaller and cleaner, with Cancel first as before.
+  - Orbit no longer says it is opening the dialer before you have confirmed it.
+
+- **v0.7.8.0**: Orbit Local can work out phone commands on its own, several photos go in one message, anything can be shared to Orbit, and replies land in the right app.
+  - Orbit Local understands phone commands in your own words with an optional on-device model, working with no internet.
+  - Ask for a calculation, a unit conversion, or what your battery, brightness, volume, ringer or Do Not Disturb is really set to.
+  - Control playback and the ringer by voice or text: play, pause, skip, and switch between ring, vibrate and silent.
+  - Pick several photos from your gallery at once, and hold up to ten attachments in one scrollable row.
+  - Share text, links, photos or a PDF to Orbit from any app; it opens a conversation and waits for you.
+  - Orbit asks before opening the dialer for 911 or 988, and never says it has opened it before you confirm.
+
+- **v0.7.8.1-beta.1**: Tap an attached image to see it full screen, and ask Orbit about text you select in any app.
+  - Tap any image attached to a message, sent or unsent, to open it full screen on a black background.
+  - Pinch or double-tap to zoom, drag to move around, and swipe between several images on one message.
+  - Remove an image you have not sent yet from the viewer, without losing what you had typed.
+  - Select text in almost any app and choose **Ask Orbit** to open it in a new conversation, ready for your question.
+  - Nothing is sent automatically, and Orbit never changes the text in the app you selected it from.
+
+- **v0.7.8.1-beta.2**: Answers now format as they arrive instead of turning from raw text into a tidy response at the end.
+  - Headings, lists, bold, quotes, tables and code now format while Orbit is still writing the answer.
+  - Code appears in a proper code block as it is typed out, with Copy ready once the snippet is finished.
+  - The finished answer settles in place instead of flashing into a different-looking one.
+  - Moving from Thinking into the answer, and new content arriving, both got gentler motion.
+  - If you scroll up while Orbit is answering, it leaves you there; jump-to-latest works exactly as before.
+  - Turning Android animations down still gives you the full formatting, just without the movement.
+
+- **v0.7.8.1-beta.3**: Presentation polish for answers, from real-device testing of the new progressive formatting.
+  - Text written as bold *and* italic together now shows as both, with no leftover asterisks.
+  - Every cell in a table row now shares that row's height, so a row reads as one continuous row.
+  - Rows still size to their own content, and wide tables still scroll sideways.
+  - Checklists in an answer now show proper ticked and empty boxes instead of literal `[x]` and `[ ]`.
+  - Those boxes are part of the answer, so they are shown rather than tapped, and read out as checked or unchecked.
+  - Jump to latest is now slightly see-through, so it covers less of the message behind it.
+
+- **v0.7.8.1**: Attachments open full screen, Orbit answers text you select anywhere, and replies now format as they arrive.
+  - Tap any attached image to view it full screen, pinch or double-tap to zoom, and swipe between images.
+  - Select text in almost any app and choose **Ask Orbit** to open it in a new conversation, ready for your question.
+  - Headings, lists, bold, quotes, tables and code now format while Orbit is still writing, with gentler motion throughout.
+  - Combined bold and italic renders properly, table rows line up as one row, and checklists show real tick boxes.
+  - Jump to latest is slightly see-through, so it covers less of the message behind it.
+  - A tiny hidden Lelo-mode easter egg got a little more personal. 💜
+
+- **v0.7.8.2-beta.1**: Orbit Deck, a personal command centre for the Orbit you actually use.
+  - Open Deck from the Chats header for one-tap access to your own arrangement of Orbit shortcuts.
+  - Start with a useful default Deck, then add, rename, resize, reorder and remove tiles however you like.
+  - Add tiles that run a saved Routine, launch an installed app, or open a new chat with your own prompt ready to edit.
+  - Flashlight and Play/Pause tiles show live state, and Deck never sends anything to your AI provider on its own.
+  - Suggested shows at most a couple of relevant shortcuts worked out on this phone, and can be turned off.
+  - In Lelo mode the Side-button overlay is now titled to match the rest of the app.
+
+- **v0.7.8.2-beta.2**: Documents arrive in Orbit, and Deck now reorders the way it looks like it should.
+  - Drag a Deck tile and the surrounding tiles now move aside live, with the finished order saved after you drop it.
+  - A cleaner sliders control replaces the drawing-style pencil for Deck customization.
+  - Tap a PDF in full chat to open a native viewer with page swiping, zoom, direct page selection, and local search.
+  - Search results keep their page identity and jump through matches without sending the document anywhere.
+  - Ask Orbit about the page you are reading; it stages that exact page in a new composer and never sends automatically.
+
+- **v0.7.8.2-beta.3**: Deck, PDF search and timers now behave the way they look like they should.
+  - Dragging a Deck tile flows smoothly: neighbouring tiles slide aside instead of jumping, and never overlap.
+  - PDF search now highlights the word it found, and Next moves visibly between matches on the same page.
+  - Ask Orbit attaches the page as a real card with a thumbnail, title and page number; tapping it reopens that page.
+  - Orbit can now see the page you ask about, so charts, diagrams and scanned pages work as well as plain text.
+  - Timers understand mixed and fractional durations, so "4 minutes and 30 seconds" and "4 and a half minutes" both set 4:30.
+  - Notification categories appear consistently in Android settings, and a PDF Orbit fully read is no longer called a preview.
+- **v0.7.8.2-beta.4**: Dragging a full-width Deck tile now looks right the whole way, not just at the end.
+  - Moving the wide New chat tile reserves a complete row at every step, so it never sits half in a column.
+  - The pair of tiles it moves into steps aside together, instead of one card shifting and its partner lagging behind.
+  - No card is left stranded under the tile you are carrying, and the grid never briefly shows an empty gap.
+  - The row the tile will land in is visible before you lift your finger.
+  - Dragging standard tiles is unchanged, on phones and on tablets alike.
+
+- **v0.7.8.2**: Orbit Deck and Documents arrive, and timers finally understand how people say durations.
+  - **Orbit Deck**, a surface of your own opened from the Chats header: add, resize, reorder, configure and reset tiles for Orbit destinations, Routines, safe device actions, apps and saved prompts.
+  - Standard and Wide tiles on a responsive phone and tablet grid, with dragging that reflows cleanly for both sizes. Suggestions are worked out on your device, are optional, and never rearrange your Deck.
+  - **Documents**: read PDFs natively with page navigation, a page scrubber, pinch, double-tap and pan, and search that highlights the match on the page.
+  - **Ask Orbit about this page** attaches the page as a card with a thumbnail and page number that reopens it; where your provider supports images Orbit sees the page itself, otherwise its text.
+  - **Timers** now read "4 minutes and 30 seconds", "4 and a half minutes" and "1 hour 5 minutes 30 seconds" correctly, set in your usual Clock app.
+  - Orbit's notification categories appear consistently in Android settings without anything being posted, and presentation polish continues throughout. 💜
+
+- **v0.7.8.3**: Theme Studio arrives, so you can design how Orbit looks with a live preview.
+  - Set Orbit's accent, your message bubbles, Orbit's replies, cards, the background and AMOLED, each on its own.
+  - The preview shows a real Orbit conversation as you edit it, using Orbit's own app and Deck marks.
+  - Start from built-in presets, including the new Nova AMOLED, or save, rename, duplicate and delete your own.
+  - Import and export portable Orbit theme files through Android's system picker, with no storage permission.
+  - Imported themes are checked and previewed first, then added as your own presets. Nothing changes until you press Apply.
+  - Color menus stay centred and on screen, and timers such as "4 and 1/2 minutes" are now read correctly.
+
+- **v0.7.8.3-beta.6**: A small Theme Studio polish update.
+  - Theme Studio Color menus are now centred on screen, so their left and right margins look balanced.
+  - Menus still open above or below the Color control you tapped, depending on the room available.
+  - Popups continue to stay clear of the fixed Revert and Apply bar and inside the usable screen area.
+  - On tablets a menu is centred within the controls pane, so it stays beside the row that opened it.
+
+- **v0.7.8.3-beta.5**: A small Theme Studio polish update.
+  - Fixed Theme Studio Color menus so they stay anchored to the control that opened them.
+  - Long menus now flip above the source row when there is not enough room below.
+  - Popups stay clear of the fixed Revert and Apply bar and remain inside the usable screen area.
+
+- **v0.7.8.3-beta.4**: A small Theme Studio preview fix on top of Beta 3.
+  - The Theme Studio live preview now shows Orbit's real app mark beside the title instead of a plain colored circle.
+  - The mark follows the accent you are previewing, so you can see how your accent looks on Orbit's own icon before applying it.
+  - Everything from Beta 3, including theme import and export, is unchanged.
+
+- **v0.7.8.3-beta.3**: Theme Studio themes can now travel with you.
+  - Import Orbit theme files through Android's system picker, with no storage permission.
+  - Export any theme in the preview as a portable Orbit theme file.
+  - Imported themes are shown to you first, then added as editable custom presets. Your appearance changes only when you apply one.
+  - Theme files are versioned and checked, so unrelated, malformed or unsupported files are refused cleanly.
+  - The Deck sample in the live preview now uses Orbit's own Deck mark instead of a plain dot.
+  - Tablet polish for the Theme Studio action bar and the import preview.
+
+- **v0.7.8.3-beta.2**: Theme Studio refinement, and a timer fix.
+  - Theme Studio is now the one place Orbit colors are set. Look & Feel no longer repeats the accent, AMOLED and bubble controls underneath it.
+  - Orbit colors and Theme Studio presets share one palette, so Nova and Violet mean the same thing everywhere.
+  - New built-in **Nova AMOLED** preset: Nova purple on a true-black page, marked as the creator's favorite.
+  - Links now follow your accent and stay readable, in Orbit's replies and in the Theme Studio preview.
+  - Cleaner spacing and shorter wording across Theme Studio and Look & Feel.
+  - Your existing accent, AMOLED, bubble colors and saved themes all carry over.
+  - Fixed timers such as "4 and 1/2 minutes", which Orbit read as 5 minutes.
+
+- **v0.7.8.3-beta.1**: Theme Studio — design how Orbit looks, with a live preview.
+  - A new **Theme Studio**, opened from Settings → Look & Feel, with a preview of a real Orbit conversation that updates as you edit.
+  - Set the accent, your message bubbles, Orbit's reply bubbles, cards and the background, each on its own.
+  - Seven Orbit presets including AMOLED, plus your own saved themes: save, rename, duplicate and delete.
+  - A built-in colour picker with hex entry, so any colour is available without leaving Orbit.
+  - Nothing changes until you press Apply, and Orbit asks before discarding unapplied edits.
+  - Orbit warns when a combination would be hard to read, and keeps AMOLED backgrounds truly black.
+  - Your existing accent, AMOLED and bubble colours carry over exactly.
+
+- **v0.7.8.4-beta.1**: Orbit Vault arrives, a private place on your phone for things you want to keep.
+  - Save text, links, images and useful Orbit answers to a Vault that lives only on this device.
+  - Quick Capture writes a note, saves your clipboard, or adds a photo without starting a conversation.
+  - Sharing text, a link or a photo from another app now asks whether to ask Orbit or save it.
+  - Hold an Orbit answer in a chat and choose Save to Vault, without leaving the conversation.
+  - Search, reopen, rename, edit and delete saved items, all offline and with no AI request.
+  - Your Vault is included in Orbit backups, and Orbit never sends its contents anywhere on its own.
+
+- **v0.7.8.4-beta.2**: Orbit Vault becomes part of Orbit, not just a place things sit.
+  - Add your own note to a saved item, so you remember why you kept it.
+  - Ask Orbit about a saved item: the chat opens holding it, and nothing is sent until you send it.
+  - Attach a saved item to any message from the chat Attach menu, beside Camera and Gallery.
+  - Turn Orbit Vault off without deleting anything, then turn it back on and find everything there.
+  - Delete all Vault data as a separate, deliberate action with its own confirmation.
+  - Redesigned saved-item actions, so Open link and Ask Orbit stand out instead of a wall of buttons.
+  - Search now looks at your notes too, and notes travel with your Orbit backups.
+- **v0.7.8.4-beta.3**: Vault spreads across Orbit, and first-run setup gets a simpler look.
+  - Save the page you are reading in Orbit Documents straight to your Vault.
+  - Save a screen selection, or text you selected in another app, for later.
+  - Open Vault or Quick Capture straight from Orbit Deck.
+  - Attach several saved items to one message instead of one at a time.
+  - First-run setup now offers Orbit's theme presets with a separate true black switch.
+  - Saved items sit better on screen, and the note editor is a clear box instead of a stray line.
+- **v0.7.8.4-beta.4**: A more organized Vault, and a clearer roadmap.
+  - Filter your Vault by the kind of thing you saved: text, links, images, documents or Orbit answers.
+  - Filter by where something came from, and combine that with a type and a search.
+  - Pin the items you keep coming back to, and find them in their own section at the top.
+  - Empty results now say whether it was the search or the filter that found nothing.
+  - Screen Selection gives space back to your selection with a smaller Save to Vault control.
+  - Orbit's in-app and GitHub roadmaps now show what is actually being worked on next.
+- **v0.7.8.4-beta.5**: A cleaner Vault before Stable, with filters and gestures that behave like the rest of Orbit.
+  - Type and Saved from are now two clear selectors on one row, with no sideways scrolling to find them.
+  - Each filter can be changed or cleared on its own, without disturbing the other one or your search.
+  - Saved from now says Orbit Documents, so what an item is and where it came from read as different questions.
+  - Swipe a saved item left to delete it or right to pin and unpin it, exactly as in Chats.
+  - A deleted item offers Undo, and its picture is only removed once that offer has expired.
+  - Saved-item pages no longer spend header width on a Pin button, so long titles have room to breathe.
+- **v0.7.8.4-beta.6**: A new layer of polish for Chats and your Vault.
+  - Chats and Vault now float their search and filter controls above the page instead of boxing them in.
+  - The hard divider under Search is gone; the list now fades softly under the controls with no visible cutoff.
+  - Glass and shading follow your Theme Studio colours and AMOLED setting rather than one fixed look.
+  - Your Vault feed now has a Saved Items heading, matching the way Chats labels its own list.
+  - Saved from only offers the places the kind of item you are viewing actually came from.
+  - Settings search is now on the roadmap for 0.7.8.5.
+
+- **v0.7.8.4**: Orbit Vault is now Stable.
+  - Save text, links, images, Orbit answers, Screen Selections and PDF pages, with optional notes, local search, filters and pinning.
+  - Use Quick Capture, or save supported text, links and images from Share to Orbit.
+  - Bring saved content into conversations with Ask Orbit and Attach from Vault.
+  - Open Vault and Quick Capture directly from Orbit Deck.
+  - Swipe Vault items to pin or delete them like Chats, with safe Undo for deletion.
+  - First-run Theme Studio setup now covers presets, AMOLED, fonts and chat text size, while Chats and Vault share refined floating glass.
+- **v0.7.8.5-beta.1**: Answers are getting more visual, and Settings is easier to navigate.
+  - Orbit can now show a useful sourced web image inside an answer when a picture genuinely helps.
+  - Tap a rich image to open it in Orbit's existing image viewer, view its source page, or save it to Vault.
+  - Saved rich images keep their caption and source page, and appear under a new Rich answer source.
+  - Search Orbit Settings to jump straight to the exact control you want.
+  - Added optional GPT-6 Astra for eligible ChatGPT accounts, without changing Orbit's Auto routing.
+- **v0.7.8.5-beta.2**: Rich Answer images now load on the real web.
+  - Fixed sourced images failing to appear when the address was a picture's web page rather than the picture itself.
+  - Fixed images failing on filenames containing accents or non-Latin characters.
+  - Orbit now tries another image from the same page when the first one cannot be shown.
+  - Pictures in formats your Android version cannot display are no longer chosen over ones it can.
+  - Damaged cached images are now discarded and fetched again instead of failing every time.
+  - An image that still cannot be shown offers Open source, and Diagnostics reports why.
+- **v0.7.8.5-beta.3**: Sourced images now come from the article itself, not just the page preview.
+  - Orbit now looks at the photographs inside a cited article, so pages without a preview image can still illustrate an answer.
+  - Questions that are clearly asking to see something search a little harder before giving up.
+  - Images are now chosen by how well they match what you asked about, so photos win over logos and site furniture.
+  - Added a Rich Answers section to Orbit Diagnostics, with its own copy action for reporting a missing image.
+  - Nothing about Orbit's image safety rules was relaxed to make this work.
+
+- **v0.7.8.5-beta.4**: Fixes Rich Answers source delivery and Diagnostics heading consistency.
+  - Hosted-search sources now survive worker completion and reach Rich Answers image discovery.
+  - Visual requests record an explicit diagnostic when no source URLs arrive.
+  - Regenerate uses its newly returned sources and keeps late images attached to their owning request.
+  - Expanding or collapsing Diagnostics sections preserves the original heading typography.
+- **v0.7.8.5-beta.5**: Rich Answers can finally use the source Orbit already shows you.
+  - Fixes a real-device gap where a web answer showed an Open source control while image discovery received no sources at all.
+  - Rich Answers now falls back to that explicit source when the provider reports no structured search results.
+  - Ordinary links written inside an answer are still never treated as sources, so nothing new is fetched.
+  - Diagnostics now names which source route was used and shows real budgets even when no source was found.
+  - Diagnostics can also record the shape of a search response, using field names and counts only.
+  - A recovered source is saved with the answer, so reopening a chat still shows where its picture came from.
+- **v0.7.8.5-beta.6**: Asking to see pictures now actually brings back pictures.
+  - An explicit request for pictures, pics, photos, or images now asks for two, and a written number is respected up to two.
+  - A single article or gallery page can now supply both pictures instead of only ever one.
+  - Two sizes of the same photograph are recognised as one photograph, so the same picture is never shown twice.
+  - When only one trusted source exists, Orbit may follow a small number of image links in the answer to find a second picture.
+  - A broken image address written into an answer now fails as one quiet line instead of a large error card.
+  - Answers no longer promise a number of photos, and Diagnostics reports how many were requested and how many arrived.
+- **v0.7.8.5-beta.7**: When Orbit shows two pictures, they are now two different pictures.
+  - Orbit compares the pictures it downloads, not just their web addresses, so one photo is never shown twice.
+  - The same photograph found on another site, at another size, or under another name is now recognised and skipped.
+  - If only one genuinely different picture can be found, Orbit shows one rather than repeating it.
+  - Orbit's own sourced pictures are now the only images shown, so a duplicate written into the answer text never appears.
+  - Answers no longer claim how many pictures will appear or that they are different from each other.
+  - Diagnostics now reports how many duplicates were rejected and gives each picture a short visual identity.
+- **v0.7.8.5-beta.8**: Asking to see something now actually sends Orbit to look for it.
+  - Questions whose answer is a picture now require a real web search instead of being answered from memory.
+  - Those answers come back with genuine sources, which is what lets Orbit attach pictures at all.
+  - Every other question is unchanged, and a question about a picture you attached never searches the web.
+  - If your account will not accept a required search, Orbit quietly goes back to asking and never shows an error.
+  - Diagnostics now reports how many picture questions required a search and how many actually searched.
+- **v0.7.8.5-beta.9**: A second picture now has to be worth showing, or Orbit shows one.
+  - Each picture must relate to what you asked about on its own, not merely sit on a relevant page.
+  - Requests for photos now reject obvious graphics, icons and blank placeholders instead of showing them.
+  - Asking for several pictures can now return one excellent photo when no second one qualifies.
+  - Captions no longer borrow a page title for an image the page never described, so nothing is mislabelled.
+  - Diagrams, maps, flags, logos and illustrations are unaffected and still appear as before.
+  - Diagnostics now reports each picture's own subject match and why a second one was refused.
+
+- **v0.7.8.5**: Rich Answers, Settings search, and expanded model choice are now Stable.
+  - Orbit can show sourced web images inside an answer when a picture genuinely helps, with the domain it came from.
+  - A plural request can bring back two useful pictures, and one excellent picture instead of a poor second.
+  - Duplicate and junk images are rejected, so the same photo is never repeated and graphics never stand in for photographs.
+  - Tap any sourced picture to open Orbit's image viewer, visit its source page, or save it to your Vault.
+  - Search Orbit Settings to jump straight to the control you want, with no AI and no network involved.
+  - Optional GPT-6 Astra is available as a Custom model for eligible ChatGPT accounts, and Auto routing is unchanged.
+
+## 0.8 series
+
+- **v0.8.4.1**: ChatGPT sign-in reliability and Times New Roman fixes are now Stable.
+  - Orbit renews your ChatGPT session automatically, including older sessions, so requests no longer get stuck failing until you sign out and back in.
+  - After an unexplained ChatGPT failure, Orbit renews the session before your next request or retry.
+  - Temporary ChatGPT problems no longer sign you out, and an ended session shows a Sign in again button; your chats are kept.
+  - Times New Roman displays as a serif font again on Samsung phones where it had fallen back to the default font, in previews too.
+  - Orbit does not include the Times New Roman font itself; your phone's Times New Roman or Android's serif font is used.
+
+- **v0.8.4.1-beta.1**: A fix Beta for ChatGPT sign-in reliability and the Times New Roman font.
+  - Orbit now renews your ChatGPT session automatically, including older sessions, so requests no longer get stuck failing until you sign out and back in.
+  - After an unexplained ChatGPT failure, Orbit renews the session before your next request or retry.
+  - Temporary ChatGPT problems no longer sign you out, and an ended session shows a Sign in again button; your chats are kept.
+  - Times New Roman displays as a serif font again on Samsung phones where it had fallen back to the default font, in previews too.
+  - Orbit does not include the Times New Roman font itself; your phone's Times New Roman or Android's serif font is used.
+
+- **v0.8.4.0**: Overlay Styles: the Side-button assistant is now yours to shape, and existing users keep the Classic overlay after updating.
+  - Choose Modern, the new default for fresh installs, the compact Float, or the original Classic in Look & Feel > Overlay.
+  - Float starts small, grows only when a conversation needs room, and becomes a bottom-right card on landscape phones and larger screens.
+  - Tap Float's handle to fold it into a Peek capsule that keeps replies, voice and your chat going.
+  - Choose which quick controls stay on the overlay, with a live preview; hidden ones stay one tap away in its More menu.
+  - Every style keeps all of Orbit's features, with sizing, animation and Settings Search polish throughout.
+  - About & updates now links to Orbit's GitHub repository.
+
+- **v0.8.4.0-beta.4**: Overlay Styles Beta 4: a smarter Float and a new Overlay section in Look & Feel.
+  - Float now adapts to landscape and larger screens, resting as a neat card in the bottom-right corner.
+  - Tap Float's handle to fold it into a compact Peek that keeps your chat, reply and voice going.
+  - Choose which quick controls stay on the overlay; hidden ones remain one tap away in its More menu.
+  - A live overlay preview in Look & Feel shows your style and controls as you change them.
+  - Further animation, sizing and interaction polish across the overlay.
+
+- **v0.8.4.0-beta.3**: Overlay Styles Beta 3: a small polish pass on the Side-button assistant.
+  - Refined how the overlay is drawn and sized, so compact styles stay tidy near the bottom of the screen.
+  - The Overlay style setting now describes every style consistently.
+  - Every style keeps all of Orbit's capabilities, including voice, screen context, attachments and history.
+  - Added a few small surprises along the way.
+
+- **v0.8.4.0-beta.2**: Overlay Styles Beta 2: three distinct looks for the Side-button assistant, with Modern as the new default.
+  - Beta 1's Float is now called Modern, and it is the default overlay; if you chose Float in Beta 1, you keep that same look.
+  - The new Float is a truly compact assistant that sits near the bottom of the screen.
+  - Float grows only when a conversation needs the room, then scrolls instead of taking over the screen.
+  - Modern also wastes less space when the conversation is empty.
+  - Classic remains available, unchanged, and every style keeps all of Orbit's capabilities.
+
+- **v0.8.4.0-beta.1**: Overlay Styles: choose how the Side-button assistant looks.
+  - Pick an overlay style in Settings, Look & Feel; the next time you open the assistant it uses it.
+  - Classic is the overlay you already know, and it stays the default.
+  - Float is a new compact floating card inspired by Gemini's side-button assistant, redrawn in Orbit's own style.
+  - Float puts the screen preview, Use screen and Select area inside the message box, so there is no separate screen bar.
+  - Both styles have every feature: voice, screen context, attachments, model choice, actions, retry, Stop and rich answers.
+  - Your choice is saved with your settings and included in backups.
+
+- **v0.8.3.0**: AI Control is now Stable: choose exactly which AI answers you, and how hard it thinks.
+  - Pick the provider, model and strength for each chat from a searchable Model Library with ChatGPT, Claude, Grok and OpenRouter.
+  - Sign in with ChatGPT or OpenRouter through your browser; API keys still work for Claude, Grok and OpenRouter.
+  - Auto can pick a model for each message, but only from the providers you allow, and a model you choose is always the one that answers.
+  - Edit earlier messages into branches, flip between retried answers, and watch a ring show how full the chat is.
+  - New chats get automatic titles, and Continue in new chat carries a short summary forward.
+- **v0.8.3.0-beta.6**: OpenRouter Connect: sign in with OpenRouter and use its large model catalog in Orbit.
+  - Sign in with OpenRouter through your browser. No need to create or paste a key, though API keys still work for advanced users.
+  - OpenRouter's models appear in the Model Library, searchable by name, maker or model ID, and clearly marked apart from direct ChatGPT, Claude and Grok.
+  - OpenRouter usage is billed to your OpenRouter credits. Auto never uses it unless you switch it on in Auto settings.
+  - Auto can now choose GPT-5.6 models when they suit a request better, for example when a newer model is unavailable on your account.
+  - Searched answers that end with a source link now show it as a tappable source instead of a code block.
+- **v0.8.3.0-beta.5**: Smart Routing: Auto is back, and you decide what it may use.
+  - Choose Auto and Orbit picks the model and reasoning level for each message, based on its length, images, documents and how much context it needs.
+  - Picking a specific model still means exactly that model, every time.
+  - Auto uses ChatGPT and Orbit Local by default. Anthropic and xAI stay off until you switch them on, because they use your API credits.
+  - Response details show what Auto chose and a short reason why.
+  - Auto works per chat, from the assistant overlay, and with Send with and Retry with.
+- **v0.8.3.0-beta.4**: Model Library brings Claude and Grok to Orbit without crowding normal chat.
+  - Connect an Anthropic or xAI developer API key through AI Providers. Keys are Android Keystore-encrypted, never shown again, and excluded from backups.
+  - Browse a searchable provider-aware Model Library, favorite models, and quickly reuse a small deduplicated Recent list across providers.
+  - Claude uses Anthropic's official Messages API; Grok uses xAI's official Chat Completions API and account model catalog. Both stream into the existing conversation, Retry, variants, branches, Send with, and Response details paths.
+  - Model capabilities, reasoning choices, availability, context limits, vision, document handling, tools, search and metadata source now live in one catalog, with last-known-good dynamic metadata and no silent substitution.
+  - The context meter follows the selected model's verified limit and shows an unknown limit when metadata is unavailable. OpenAI's 1.05M-token entries were rechecked against the current official catalog.
+  - Sent attachment cards are now about 68dp high with a 52dp preview, one-line filename and quiet metadata. A usable PDF preview replaces the document icon instead of duplicating it.
+- **v0.8.3.0-beta.3**: Conversation Control: more say over what each chat remembers and where it goes.
+  - A small ring beside the AI shows roughly how full the context window is; tap it for an estimated breakdown.
+  - Hold an earlier message to edit it into a new branch, and Retry now keeps every answer so you can flip between versions.
+  - Hold Send to pick a different model or strength for just that one message.
+  - Hold an attached document, text file or Vault item to keep it for the whole chat without repeating it under every message.
+  - Near the context limit, Continue in new chat carries a short summary forward and leaves the original untouched.
+  - Rename keeps its field inside the dialog, duplicate source buttons are gone, and long attachment names stay on one line.
+- **v0.8.3.0-beta.2**: AI Control polish and automatic chat titles.
+  - GPT-5.6 Luna, Terra and Sol return as normal ChatGPT choices beside the GPT-6 family, grouped cleanly in the shared model picker with their supported strengths.
+  - New conversations receive a concise background title after their first successful exchange; local fallback is safe and deterministic, and a manual rename always wins.
+  - Chat-header pills, response actions and the Side-button AI control stay compact with accessible touch targets and safer bounds for long names.
+  - Rich Answer image attribution now opens its source directly and replaces a redundant duplicate source pill when both point to the same page.
+  - Follow-up requests can receive the exact number of Rich Answer image cards Orbit surfaced for the immediately preceding answer.
+  - Browser ChatGPT sign-in, per-chat AI choices, Retry, Reply, Vault saves and response details keep the Beta 1 architecture.
+- **v0.8.3.0-beta.1**: AI Control Beta 1: choose exactly which AI answers you and how hard it thinks.
+  - Sign in with ChatGPT in your normal browser with one tap; code sign-in stays available if you need it.
+  - Pick the provider, model and strength right from the chat header, replacing Auto, Fast, Balanced and Deep.
+  - Supports GPT-6 Luna, GPT-6.1 Sol and GPT-6 Astra, showing only the strengths each model accepts.
+  - Each chat remembers its own AI, and Retry with asks the same question again on another model.
+  - Save answers to your Vault, reply to a specific message, and open Response details to see which model answered and how long it took.
+- **v0.8.2.0**: Orbit Local 2.0 is now Stable: more of Orbit works privately on your phone.
+  - Ask Vault works fully offline with Orbit Local, and each answer names the saved items it read.
+  - Attached text files, PDFs, clipboard text, Screen Selection and screen text now reach Orbit Local, fitted carefully into its limited memory.
+  - Ask Orbit Local what notifications you missed, using the notification history already kept on your phone.
+  - Local device actions handle up to three requests at once, and "put it back" now covers Do Not Disturb and the ringer.
+  - The Orbit Local screen shows what works on this phone, and model downloads show live progress.
+  - If the local component stops mid-answer, Orbit now says so clearly instead of waiting forever.
+- **v0.8.2.0-beta.2**: Orbit Local 2.0 Beta 2 fixes live download progress on the Orbit Local screen.
+  - Orbit Local model downloads now update their progress live while the management screen is open.
+  - Download percentage, size and model state no longer require leaving and reopening the page to refresh.
+- **v0.8.2.0-beta.1**: Orbit Local 2.0 Beta 1: more of Orbit now works privately on your phone.
+  - Ask Vault works fully offline with Orbit Local, and each answer names the saved items it read.
+  - Attached text files, PDFs, clipboard text, Vault notes, Screen Selection and text Orbit read from pictures now reach Orbit Local.
+  - Ask Orbit Local what notifications you missed, using the Notification Intelligence history already kept on your phone.
+  - With the optional action model, local device actions handle up to three requests at once, and "put it back" now covers Do Not Disturb and the ringer.
+  - The Orbit Local screen now shows what works on this phone and what still needs a cloud provider.
+- **v0.8.1.0**: Orbit Smart Vault is now Stable.
+  - Search your Vault by meaning with an on-device model you choose to download, so you find things without remembering exact words.
+  - Orbit reads the text in saved screenshots and photos on your phone, and search shows the passage that matched.
+  - Get suggested titles, summaries and topics for saved items, then filter your Vault by topic. Your own titles always win.
+  - See related saves on each item, and ask Ask Vault a question answered from what you saved.
+  - Every part is optional and off until you turn it on. Indexing and search run on your phone, and each switch says what, if anything, leaves it.
+  - A full Vault never deletes your saved items. It warns you early and pauses new saves instead.
+- **v0.8.1.0-beta.2**: Smart Vault polish: smoother controls, clearer search results and a tidier settings page.
+  - Smart Vault's switches now slide and give the same light haptic tick as every other Orbit setting.
+  - The search model download shows a small progress ring with its percentage, and says when it is preparing, waiting or ready.
+  - Results found in a screenshot now show the passage that actually matched, with your words in bold.
+  - Open Smart Vault settings straight from the Vault with the new sparkle button beside Sort.
+  - The Smart Vault settings page is grouped into short sections, with fuller privacy details one tap away.
+- **v0.8.1.0-beta.1**: The first public Beta on the way to Orbit 0.9, introducing Smart Vault: free, optional, and off until you turn it on.
+  - Vault search can rank by relevance, find words inside saved screenshots, and match by meaning with an on-device model you choose to download.
+  - Orbit can suggest a title, summary and topics for saved items, and every suggestion can be kept, edited or removed. Your own titles and notes always win.
+  - Filter your Vault by topic, see related saves on each item, and use Ask Vault to answer a question from your saved items in an ordinary chat.
+  - Saving a full screen from Screen Selection now keeps the text that was on it, so you can search for it later.
+  - A full Vault no longer deletes your oldest item. It warns you early and pauses new saves instead.
+- **v0.8.0.2**: Fixes first-run setup and tablet layout on Chats and Orbit Vault.
+  - A fresh install of Orbit opens the welcome setup again the first time you launch it.
+  - People updating from an earlier Orbit still go straight to their chats, as before.
+  - On tablets, the search bar in Chats now lines up with the New chat button and your chat list.
+  - In Orbit Vault, search and the filters now span the same width as Save to Vault and your saved items.
+- **v0.8.0.1**: A maintenance release that brings Orbit up to Android 16.
+  - Orbit now targets Android 16, and Back behaves exactly as before on every screen and in the Side-button overlay.
+  - Locked Orbit Pro features now say that Pro isn't available for purchase yet, instead of pointing to a control Stable doesn't have.
+  - Diagnostics now shows whether this copy of Orbit came from GitHub or Google Play.
+  - Updates, Orbit Local, and location-triggered Routines work exactly as before in the GitHub edition.
+- **v0.8.0.0**: A more organized Orbit Deck and new surface materials are now Stable.
+  - Choose Solid, Frosted, or Liquid for Orbit's floating controls in Theme Studio, free for everyone.
+  - Organize Orbit Deck with large tiles, section headers, and one-level folders, all free.
+  - Rename, rearrange, and move tiles in and out of folders without losing their settings.
+  - Deck name and prompt fields now stay above the keyboard while you type.
+  - The Theme Studio preview shows your chosen material exactly as Deck draws it.
+  - Groundwork for Orbit Pro is included, but nothing that was free has moved behind it and there is nothing to buy.
+- **v0.8.0.0-beta.8**: Theme Studio preview polish.
+  - The Deck tile in the Theme Studio preview now shows your selected Solid, Frosted, or Liquid material.
+  - Switching materials updates the preview instantly, matching how real Deck tiles look.
+  - Free users now see their material choice in the preview, not only in Deck itself.
+  - Custom colors, AMOLED true black, Orbit Pro glass tuning, and saved themes all behave exactly as before.
+- **v0.8.0.0-beta.7**: Saved Deck layouts and Deck input polish.
+  - Orbit Pro can keep up to ten complete saved Deck layouts and switch between them directly from Deck.
+  - Rename, duplicate, and delete layouts from an Orbit-native manager, with independent structure and appearance in every copy.
+  - Start with a genuinely blank Deck or one of three curated, user-neutral templates.
+  - Schema 2 Decks migrate without changing tile order, folders, sections, sizes, configuration, appearance, or stable item identities.
+  - Free Orbit keeps the active fully organizable Deck while additional Pro layouts remain stored safely for later.
+  - Section, folder, tile, prompt, and layout fields now stay above the Android keyboard in a reusable scroll-safe sheet.
+- **v0.8.0.0-beta.6**: A more organized Orbit Deck, plus per-tile styling for Orbit Pro.
+  - Large tiles use real two-row space and show useful secondary information where the tile supports it.
+  - Free section headers divide the ordered Deck without owning or deleting the tiles that follow them.
+  - Free one-level folders keep tiles together, with rename, reorder, move-in, and move-out controls.
+  - Sizes, sections, folders, rearranging, and normal Deck editing remain completely Free.
+  - Orbit Pro adds per-tile accent, Solid, Frosted or Liquid material, icon treatment, and label visibility.
+  - Stored Pro appearance returns exactly after switching from Free back to Pro Preview.
+- **v0.8.0.0-beta.5**: Surface materials, and a visual polish pass over glass and backgrounds.
+  - Orbit's floating controls now come in three materials: Solid, Frosted and Liquid. Choosing one is free.
+  - Frosted is the new soft option: translucent and quiet, and the cleanest choice for everyday use.
+  - Liquid keeps its depth but is much more restrained, so it belongs with your theme instead of standing apart from it.
+  - Wide controls like the Chats search bar no longer carry a broad white highlight across the top.
+  - Theme Studio now explains that true black AMOLED hides background effects, instead of leaving you to work it out.
+  - Linear gradients gain a Strength control, from a gentle color cast to the full two-color sweep.
+  - Advanced glass sliders stay Orbit Pro, and your settings are kept when you switch to Solid.
+- **v0.8.0.0-beta.4**: Liquid Orbit Glass and advanced backgrounds, the most visual Orbit Pro release so far.
+  - Orbit's floating controls are now Liquid Glass: a see-through body, light catching the top curve, and accent gathering at the edges.
+  - Glass opacity, tint and edge all reach much further, so the difference between subtle and dramatic is now obvious.
+  - Orbit Pro adds a Background tool with linear gradients in eight directions, built on your existing background color.
+  - It also adds a radial glow with its own color, strength, size and position, for a page that reads like deep space.
+  - Two new Orbit Pro presets show them off: Aurora for the gradient and Nova Ultra for the glow.
+  - True black AMOLED still means true black. Background effects hide while it is on and return exactly as you left them.
+  - Solid backgrounds, every existing preset and your background color stay completely free.
+- **v0.8.0.0-beta.3**: Theme Studio Pro polish, with the interaction problems found on the Galaxy S25 Ultra fixed.
+  - Orbit Pro now sits below Colors and Presets, so free Theme Studio is first and uninterrupted.
+  - Without Pro, the locked area is a short note at the bottom instead of a large panel in the middle.
+  - Message style and Floating glass are now two tools, each with its own small live preview beside its controls.
+  - Sliders follow your finger and stay exactly where you release them.
+  - Choosing a preset updates the advanced controls once, cleanly, and still changes nothing until you apply it.
+  - Fixed text that could change weight while you adjusted a slider.
+- **v0.8.0.0-beta.2**: Theme Studio Pro arrives with advanced message and glass styling, the first Orbit Pro features that actually change how Orbit looks.
+  - A new Advanced section in Theme Studio adds bubble roundness and an optional bubble outline for your conversations.
+  - It also adds glass opacity, accent tint and edge light for Orbit's floating controls in Chats and the Vault.
+  - Two Orbit Pro presets join the gallery: Signal Violet and Nebula Glass.
+  - Everything Theme Studio already did stays free, including all existing presets, custom colors, saved themes and theme import and export.
+  - Orbit looks exactly as it did before unless you deliberately change one of the new settings.
+  - Your advanced settings are kept even when Pro is unavailable, and they come straight back when it returns.
+- **v0.8.0.0-beta.1**: Groundwork for Orbit Pro, the optional paid layer of advanced customization planned on top of free Orbit.
+  - Nothing changes for anyone using Orbit today. No existing feature moved behind Pro, and none ever will.
+  - Orbit now resolves Orbit Pro through one central place, so future premium features stay independent of how entitlement is granted.
+  - There is no checkout, no purchase, no billing, and no way to buy Orbit Pro yet. Every build resolves to Free.
+  - Beta testers can switch a Free and Pro Preview state in the hidden Diagnostics screen, so upcoming premium work can be checked in both states.
+  - That preview is a Beta testing aid only. Stable builds ignore it entirely and always resolve to Free.
+  - Theme Studio Pro is the first premium feature planned, and it is not in this Beta.

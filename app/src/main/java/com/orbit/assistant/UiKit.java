@@ -1,0 +1,2297 @@
+package com.orbit.assistant;
+
+import android.app.Activity;
+import android.app.AlertDialog;
+import android.content.Context;
+import android.content.res.ColorStateList;
+import android.graphics.Color;
+import android.graphics.Canvas;
+import android.graphics.Paint;
+import android.graphics.Insets;
+import android.graphics.Typeface;
+import android.graphics.Rect;
+import android.graphics.fonts.Font;
+import android.graphics.fonts.FontFamily;
+import android.graphics.fonts.SystemFonts;
+import android.graphics.drawable.Drawable;
+import android.graphics.drawable.GradientDrawable;
+import android.graphics.drawable.ClipDrawable;
+import android.graphics.drawable.LayerDrawable;
+import android.graphics.drawable.RippleDrawable;
+import android.graphics.drawable.StateListDrawable;
+import android.os.Build;
+import android.os.Handler;
+import android.os.Looper;
+import android.util.TypedValue;
+import android.view.HapticFeedbackConstants;
+import android.view.MotionEvent;
+import android.view.Window;
+import android.view.WindowInsets;
+import android.view.WindowManager;
+import android.view.View;
+import android.view.ViewGroup;
+import android.view.ViewTreeObserver;
+import android.view.animation.OvershootInterpolator;
+import android.view.animation.AccelerateInterpolator;
+import android.view.animation.DecelerateInterpolator;
+import android.view.animation.Interpolator;
+import android.widget.TextView;
+import android.widget.Button;
+import android.widget.CompoundButton;
+import android.widget.EditText;
+import android.widget.ImageView;
+import android.widget.LinearLayout;
+import android.widget.FrameLayout;
+import android.widget.PopupWindow;
+import android.widget.ProgressBar;
+import android.widget.ScrollView;
+import java.io.File;
+import java.util.HashSet;
+import java.util.Locale;
+import java.util.Map;
+import java.util.Set;
+import java.util.WeakHashMap;
+import java.util.ArrayList;
+import java.util.List;
+import android.graphics.drawable.ColorDrawable;
+
+public final class UiKit {
+    private static final long ORBIT_POPUP_EXIT_MS = 85L;
+    static final long ORBIT_DIALOG_ENTER_MS = 115L;
+    static final float ORBIT_DIALOG_ENTER_SCALE = 0.985f;
+    /**
+     * Orbit's own canvas, unthemed. Every one of these is what the app has always drawn, and the
+     * classic path through {@link #applyTheme} returns them untouched, so a default install renders
+     * after Theme Studio exactly as it did before it.
+     */
+    private static final int NORMAL_BG = Color.rgb(10, 12, 17);
+    private static final int CLASSIC_SURFACE = Color.rgb(22, 25, 33);
+    private static final int CLASSIC_SURFACE_2 = Color.rgb(30, 34, 44);
+    private static final int CLASSIC_SURFACE_3 = Color.rgb(37, 41, 53);
+    private static final int CLASSIC_TEXT = Color.rgb(244, 244, 248);
+    private static final int CLASSIC_MUTED = Color.rgb(166, 171, 185);
+    /** Orbit's ink for content on a light ground, matching what {@link #onBubble} has returned. */
+    private static final int CLASSIC_DARK_TEXT = Color.rgb(24, 27, 34);
+
+    /**
+     * The live Orbit canvas.
+     *
+     * <p>These are process-wide and mutable, resolved from the active theme by {@link #syncTheme}
+     * before any screen builds itself. {@code BG} already worked this way for AMOLED; Theme Studio
+     * extends the same mechanism to the card ramp and to the inks, rather than adding a second
+     * colour system beside it. Views bake these in when they are built, which is why an appearance
+     * change that moves any of them has to rebuild the screen — see
+     * {@link #structuralAppearanceSignature}.
+     */
+    public static int BG = NORMAL_BG;
+    public static int SURFACE = CLASSIC_SURFACE;
+    public static int SURFACE_2 = CLASSIC_SURFACE_2;
+    public static int SURFACE_3 = CLASSIC_SURFACE_3;
+    public static int TEXT = CLASSIC_TEXT;
+    public static int MUTED = CLASSIC_MUTED;
+    public static final int DEFAULT_ACCENT = Color.rgb(139, 124, 255);
+    public static final int BLURPLE = Color.rgb(88, 101, 242); // Discord-style blurple
+    public static final int PASTEL_PINK = Color.rgb(255, 209, 220); // #FFD1DC
+    public static final int PASTEL_BLUE = Color.rgb(203, 229, 242); // #CBE5F2
+    public static final int SUCCESS = Color.rgb(87, 214, 146);
+    /** Restrained failure/destructive tone, matching Orbit's destructive dialog action. */
+    public static final int DANGER = Color.rgb(239, 105, 105);
+
+    // The names themselves live in OrbitPalette, which is the single definition of every colour
+    // Orbit ships. These four arrays used to be a second copy of it, which is how a Theme Studio
+    // preset ended up storing Violet as a raw hex value that the editor then called "custom".
+    private static final Map<TextView, FontPreview> FONT_PREVIEWS = new WeakHashMap<>();
+    private static final Map<TextView, Boolean> INTENTIONAL_MONOSPACE = new WeakHashMap<>();
+    private static final Map<TextView, Boolean> TYPOGRAPHY_APPLIED = new WeakHashMap<>();
+    /**
+     * The weight Orbit actually asked for, per label.
+     *
+     * <p>This map is the fix for a typography bug that survived the original v0.6.4.7 work because
+     * the mitigation there was aimed at a different half of the problem. {@code TYPOGRAPHY_APPLIED}
+     * stops the layout watcher from touching a label twice; it does nothing about the fact that
+     * every re-application <em>infers</em> the intended weight by reading the realized
+     * {@link Typeface} back with {@link Typeface#getStyle()}.
+     *
+     * <p>That inference is not sound. {@code Typeface.create(family, style)} reports the style of
+     * the font it actually matched, not the one that was requested. A family with no true bold
+     * face is drawn bold by the paint and still reports {@code NORMAL}, so the next pass reads
+     * NORMAL, re-applies NORMAL, and the heading quietly stops being bold. The reverse happens on a
+     * family whose matched face is heavy enough to report BOLD for a normal request. Either way a
+     * weight can flip on any pass that re-reads it, which on the device looked like text randomly
+     * changing weight while a slider moved and the surface around it was rebuilt.
+     *
+     * <p>So the intent is recorded when Orbit sets it and read back instead of guessed. Inference
+     * survives only as the fallback for labels Orbit never created - a platform button inside an
+     * AlertDialog, for instance - where there is no recorded intent and a guess is still better
+     * than forcing everything to normal.
+     */
+    private static final Map<TextView, Integer> TYPOGRAPHY_STYLE = new WeakHashMap<>();
+    private static final Map<View, Boolean> TYPOGRAPHY_WATCHED = new WeakHashMap<>();
+    private static final Map<AppearanceListener, Boolean> APPEARANCE_LISTENERS = new WeakHashMap<>();
+
+    private UiKit() {}
+
+    /**
+     * Sync the process-wide Orbit canvas to the active theme.
+     *
+     * <p>AMOLED mode uses true black for large background areas while keeping raised surfaces
+     * intact for readable card separation. That behaviour predates Theme Studio and is unchanged:
+     * AMOLED is applied to the page, never to the card ramp, so cards stay distinguishable.
+     */
+    public static void syncTheme(Context c) {
+        if (c == null) return;
+        applyTheme(OrbitThemeTokens.resolve(c, OrbitThemeStore.active(c)));
+    }
+
+    /**
+     * Installs an already-resolved theme as the canvas the whole app draws from.
+     *
+     * <p>The arithmetic lives in {@link OrbitThemeTokens} rather than here, because the Theme
+     * Studio preview has to resolve a draft <em>without</em> changing what the rest of the app is
+     * currently drawing. One resolver with two consumers is what stops the preview and the real
+     * app from slowly disagreeing.
+     */
+    static void applyTheme(OrbitThemeTokens tokens) {
+        if (tokens == null) return;
+        BG = tokens.background;
+        SURFACE = tokens.surface;
+        SURFACE_2 = tokens.surface2;
+        SURFACE_3 = tokens.surface3;
+        TEXT = tokens.text;
+        MUTED = tokens.muted;
+    }
+
+    /** Orbit's unthemed canvas, for the resolver and for the Classic swatches. */
+    static int classicBackground() { return NORMAL_BG; }
+    static int classicSurface() { return CLASSIC_SURFACE; }
+    static int classicSurface2() { return CLASSIC_SURFACE_2; }
+    static int classicSurface3() { return CLASSIC_SURFACE_3; }
+    static int classicText() { return CLASSIC_TEXT; }
+    static int classicMuted() { return CLASSIC_MUTED; }
+    static int classicDarkText() { return CLASSIC_DARK_TEXT; }
+
+    /** Shared signal used by active Orbit Settings surfaces after an appearance preference changes. */
+    public interface AppearanceListener {
+        void onOrbitAppearanceChanged();
+    }
+
+    public static String appearanceSignature(Context c) {
+        if (c == null) return "";
+        return Prefs.get(c).getString(Prefs.ACCENT, "dynamic") +
+                "|resolved=" + Integer.toHexString(accent(c)) +
+                "|amoled=" + Prefs.amoledMode(c) +
+                "|font=" + Prefs.appFont(c) +
+                "|userBubble=" + Prefs.userBubbleColor(c) +
+                "|assistantBubble=" + Prefs.assistantBubbleColor(c) +
+                "|surface=" + Prefs.get(c).getString(Prefs.THEME_SURFACE, OrbitTheme.CLASSIC) +
+                "|background=" + Prefs.get(c).getString(Prefs.THEME_BACKGROUND, OrbitTheme.CLASSIC) +
+                // Premium styling joined this in v0.8.0.0-beta.4, and advanced backgrounds are the
+                // reason. A page's background is now a drawable built from the theme when the page is
+                // built, so a screen that only watched the background *token* would come back from
+                // Theme Studio still painting the previous gradient - or none at all - until the next
+                // cold start. The effective styling is used, so a Free device never rebuilds a screen
+                // because a stored premium value moved.
+                "|material=" + materialSignature(c) +
+                "|pro=" + proStyleSignature(c);
+    }
+
+    /**
+     * The part of the appearance that is baked into views when they are built.
+     *
+     * <p>Accent and AMOLED both change {@code UiKit}'s shared colour constants and the drawables
+     * created from them, so a surface has to rebuild to pick them up. App font and conversation
+     * bubble colours are deliberately excluded: the font can be re-applied to the views already on
+     * screen, and bubble colours do not appear in Settings at all. Keeping them out of this
+     * signature is what stops routine appearance changes from replacing the whole screen.
+     *
+     * <p>Theme Studio's surface and background belong here for the same reason accent does: they
+     * move {@code SURFACE}, {@code TEXT} and {@code MUTED}, which every card, label and divider
+     * already on screen has baked in.
+     */
+    public static String structuralAppearanceSignature(Context c) {
+        if (c == null) return "";
+        return "resolved=" + Integer.toHexString(accent(c)) + "|amoled=" + Prefs.amoledMode(c) +
+                "|surface=" + Prefs.get(c).getString(Prefs.THEME_SURFACE, OrbitTheme.CLASSIC) +
+                "|background=" + Prefs.get(c).getString(Prefs.THEME_BACKGROUND, OrbitTheme.CLASSIC) +
+                // The theme's name is drawn in Settings, so it is baked into a built view exactly
+                // the way a colour is. Without it, applying a differently named theme whose accent
+                // and surfaces happen to match would leave the old name on screen.
+                "|theme=" + Prefs.get(c).getString(Prefs.THEME_NAME, "") +
+                // Premium styling belongs here for the same reason accent does: glass opacity,
+                // tint and edge are baked into the drawable under every floating control the
+                // moment it is built, and a screen sitting underneath Theme Studio has to rebuild
+                // to pick up a change. The effective value is used, so a device that cannot draw
+                // premium styling never rebuilds because a stored premium value moved.
+                "|material=" + materialSignature(c) +
+                "|pro=" + proStyleSignature(c);
+    }
+
+    private static String proStyleSignature(Context c) {
+        OrbitProStyle style = OrbitProStyle.live(c);
+        return style.bubbleRadiusDp + "." + style.bubbleOutline + "." + style.glassOpacity
+                + "." + style.glassTint + "." + style.glassEdge
+                // The advanced background belongs here for the strongest version of the reason
+                // everything else does: it is baked into the drawable on the page's own root. A
+                // screen sitting underneath Theme Studio has to rebuild to pick up a new gradient,
+                // and a device that cannot draw one never rebuilds because a stored value moved,
+                // because this reads the effective styling rather than the stored styling.
+                + "." + style.backgroundMode + "." + style.backgroundEffectColor
+                + "." + style.gradientDirection + "." + style.glowStrength
+                + "." + style.glowSize + "." + style.glowPosition
+                + "." + style.gradientStrength;
+    }
+
+    /**
+     * The free floating-surface material, as part of the appearance a built screen has baked in.
+     *
+     * <p>Separate from {@link #proStyleSignature} because it is free: a Free device must rebuild when
+     * it changes, and that signature deliberately reports the effective premium styling, which on a
+     * Free device never moves.
+     */
+    private static String materialSignature(Context c) {
+        return OrbitThemeStore.activeMaterial(c);
+    }
+
+    /**
+     * Shared appearance catalogues used by Settings, onboarding and Theme Studio.
+     *
+     * <p>Derived from {@link OrbitPalette} rather than listed here, so every surface that offers a
+     * colour offers the same colour under the same name, and a value stored by one is recognised
+     * by all the others.
+     */
+    public static String[] accentKeys() { return OrbitPalette.accentKeys(); }
+    public static String[] accentLabels() { return OrbitPalette.accentLabels(); }
+    public static String[] bubbleColorKeys() { return OrbitPalette.bubbleKeys(); }
+    public static String[] bubbleColorLabels() { return OrbitPalette.bubbleLabels(); }
+
+    public static void registerAppearanceListener(AppearanceListener listener) {
+        if (listener == null) return;
+        synchronized (APPEARANCE_LISTENERS) {
+            APPEARANCE_LISTENERS.put(listener, true);
+        }
+    }
+
+    public static void unregisterAppearanceListener(AppearanceListener listener) {
+        if (listener == null) return;
+        synchronized (APPEARANCE_LISTENERS) {
+            APPEARANCE_LISTENERS.remove(listener);
+        }
+    }
+
+    public static void notifyAppearanceChanged(Context c) {
+        syncTheme(c);
+        OrbitWidgets.updateAll(c);
+        List<AppearanceListener> listeners;
+        synchronized (APPEARANCE_LISTENERS) {
+            listeners = new ArrayList<>(APPEARANCE_LISTENERS.keySet());
+        }
+        Runnable notify = () -> {
+            for (AppearanceListener listener : listeners) {
+                if (listener != null) listener.onOrbitAppearanceChanged();
+            }
+        };
+        // Post so popup-menu selection and checkbox callbacks can finish cleanly
+        // before an active Settings surface replaces its view hierarchy.
+        new Handler(Looper.getMainLooper()).post(notify);
+    }
+
+    /** Current-accent tint for Orbit-owned checkbox/radio controls. */
+    public static ColorStateList accentControlTint(Context c) {
+        return new ColorStateList(
+                new int[][]{new int[]{android.R.attr.state_checked}, new int[]{}},
+                new int[]{accent(c), Color.rgb(90, 94, 105)});
+    }
+
+    private static volatile Typeface SYSTEM_LIGHT_BASE;
+    private static volatile Typeface SYSTEM_MONO_BASE;
+    private static volatile Typeface SYSTEM_SERIF_BASE;
+
+    /**
+     * Build a Typeface from an actual font file registered by Android instead of
+     * trusting an OEM family alias. Samsung can remap generic aliases to the user's
+     * normal system face, which made Light and Monospace look identical to Orbit
+     * Default on-device. Orbit targets/minSdk 29, so SystemFonts is always available.
+     */
+    private static Typeface systemTypefaceFromRegisteredFont(boolean monospace) {
+        try {
+            Set<Font> fonts = SystemFonts.getAvailableFonts();
+            if (fonts == null || fonts.isEmpty()) return null;
+
+            // Run ordered passes so common Latin Android faces win before broad
+            // fallbacks. We use the real registered Font object, preserving TTC
+            // indices and avoiding hard-coded /system font paths.
+            String[][] patterns = monospace
+                    ? new String[][]{
+                    {"roboto", "mono"}, {"droidsansmono"}, {"notosansmono"},
+                    {"sourcecodepro"}, {"cutivemono"}, {"mono"}
+            }
+                    : new String[][]{
+                    {"roboto", "light"}, {"roboto", "thin"},
+                    {"notosans", "light"}, {"notosans", "thin"},
+                    {"sans", "light"}
+            };
+
+            for (String[] required : patterns) {
+                Font best = null;
+                int bestWeightDistance = Integer.MAX_VALUE;
+                for (Font font : fonts) {
+                    File file = font.getFile();
+                    if (file == null) continue;
+                    String name = file.getName().toLowerCase(Locale.US).replace("-", "").replace("_", "");
+                    boolean matches = true;
+                    for (String token : required) {
+                        if (!name.contains(token.replace("-", "").replace("_", ""))) {
+                            matches = false;
+                            break;
+                        }
+                    }
+                    if (!matches) continue;
+
+                    // Prefer an upright regular-ish mono face and a genuinely light
+                    // face. This keeps the result readable while still visually clear.
+                    int targetWeight = monospace ? 400 : 300;
+                    int distance = Math.abs(font.getStyle().getWeight() - targetWeight);
+                    if (best == null || distance < bestWeightDistance) {
+                        best = font;
+                        bestWeightDistance = distance;
+                    }
+                }
+                if (best != null) {
+                    FontFamily family = new FontFamily.Builder(best).build();
+                    return new Typeface.CustomFallbackBuilder(family)
+                            .setSystemFallback(monospace ? "monospace" : "sans-serif")
+                            .build();
+                }
+            }
+        } catch (Throwable ignored) {
+            // The generic fallback below keeps Orbit usable on unusual OEM builds.
+        }
+        return null;
+    }
+
+    private static Typeface lightBase() {
+        Typeface cached = SYSTEM_LIGHT_BASE;
+        if (cached != null) return cached;
+        synchronized (UiKit.class) {
+            if (SYSTEM_LIGHT_BASE == null) {
+                Typeface resolved = systemTypefaceFromRegisteredFont(false);
+                SYSTEM_LIGHT_BASE = resolved != null
+                        ? resolved
+                        : Typeface.create("sans-serif-thin", Typeface.NORMAL);
+            }
+            return SYSTEM_LIGHT_BASE;
+        }
+    }
+
+    private static Typeface monoBase() {
+        Typeface cached = SYSTEM_MONO_BASE;
+        if (cached != null) return cached;
+        synchronized (UiKit.class) {
+            if (SYSTEM_MONO_BASE == null) {
+                Typeface resolved = systemTypefaceFromRegisteredFont(true);
+                SYSTEM_MONO_BASE = resolved != null ? resolved : Typeface.MONOSPACE;
+            }
+            return SYSTEM_MONO_BASE;
+        }
+    }
+
+    private static Typeface serifBase() {
+        Typeface cached = SYSTEM_SERIF_BASE;
+        if (cached != null) return cached;
+        synchronized (UiKit.class) {
+            if (SYSTEM_SERIF_BASE == null) {
+                Typeface resolved = systemSerifFromRegisteredFont();
+                SYSTEM_SERIF_BASE = resolved != null ? resolved : Typeface.SERIF;
+            }
+            return SYSTEM_SERIF_BASE;
+        }
+    }
+
+    /**
+     * Times New Roman's face, built from registered font files rather than the generic "serif"
+     * alias. After the One UI 9 update Times New Roman drew exactly like Orbit Default on the phone,
+     * consistent with Samsung remapping that alias - the same OEM remapping Light and Monospace
+     * already work around.
+     * A real Times New Roman file wins when the phone ships one; otherwise Android's own serif face
+     * (what the alias meant before). Orbit bundles no font file. Every upright/italic weight of the
+     * chosen family is added so bold text uses the real bold face instead of a synthesized one.
+     */
+    private static Typeface systemSerifFromRegisteredFont() {
+        try {
+            Set<Font> fonts = SystemFonts.getAvailableFonts();
+            if (fonts == null || fonts.isEmpty()) return null;
+            int bestRank = Integer.MAX_VALUE;
+            for (Font font : fonts) {
+                int rank = serifFileRank(font.getFile() == null ? null : font.getFile().getName());
+                if (rank >= 0 && rank < bestRank) bestRank = rank;
+            }
+            if (bestRank == Integer.MAX_VALUE) return null;
+            List<Font> faces = new ArrayList<>();
+            for (Font font : fonts) {
+                if (font.getFile() != null && serifFileRank(font.getFile().getName()) == bestRank) faces.add(font);
+            }
+            // Upright regular first, so it is the family's default face.
+            faces.sort((a, b) -> Integer.compare(
+                    Math.abs(a.getStyle().getWeight() - 400) + a.getStyle().getSlant() * 1000,
+                    Math.abs(b.getStyle().getWeight() - 400) + b.getStyle().getSlant() * 1000));
+            FontFamily.Builder family = null;
+            Set<Integer> styles = new HashSet<>();
+            for (Font font : faces) {
+                if (!styles.add(font.getStyle().getWeight() * 2 + font.getStyle().getSlant())) continue;
+                if (family == null) family = new FontFamily.Builder(font);
+                else family.addFont(font);
+            }
+            return new Typeface.CustomFallbackBuilder(family.build()).setSystemFallback("serif").build();
+        } catch (Throwable ignored) {
+            // Typeface.SERIF below keeps the earlier behaviour on unusual builds.
+        }
+        return null;
+    }
+
+    /**
+     * Which serif family a registered font file belongs to: 0 Times New Roman, 1 Noto Serif,
+     * 2 Droid Serif, -1 anything else. Script-specific relatives (NotoSerifArmenian, NotoSerifCJK,
+     * NotoSerifDisplay) are refused, because only the plain family carries the Latin face.
+     */
+    static int serifFileRank(String fileName) {
+        if (fileName == null) return -1;
+        String name = fileName.toLowerCase(Locale.US)
+                .replaceAll("\\.(ttf|otf|ttc)$", "")
+                .replaceAll("\\[[^\\]]*\\]", "")
+                .replaceAll("[-_ ]", "");
+        String face = "(regular|bold|italic|bolditalic|vf)?";
+        if (name.matches("(timesnewroman|times)(ps|mt|psmt)?" + face) || name.matches("times(bd|i|bi)")) return 0;
+        if (name.matches("notoserif" + face)) return 1;
+        if (name.matches("droidserif" + face)) return 2;
+        return -1;
+    }
+
+    /** Resolve a specific Orbit interface font choice without bundling font assets. */
+    public static Typeface typefaceForFontChoice(String choice, int style) {
+        String resolved = choice == null ? "orbit_default" : choice;
+        if ("times_new_roman".equals(resolved)) {
+            return Typeface.create(serifBase(), style);
+        }
+        if ("light".equals(resolved)) {
+            return Typeface.create(lightBase(), style);
+        }
+        if ("condensed".equals(resolved)) {
+            return Typeface.create("sans-serif-condensed", style);
+        }
+        if ("monospace".equals(resolved)) {
+            return Typeface.create(monoBase(), style);
+        }
+        if ("casual".equals(resolved)) {
+            // Restore the Samsung/OEM casual family used in v0.6.3.10. On the
+            // target Galaxy this is the cleaner handwritten face the user preferred.
+            return Typeface.create("casual", style);
+        }
+        return Typeface.create(Typeface.SANS_SERIF, style);
+    }
+
+    /** Resolve Orbit's currently saved interface font. */
+    public static Typeface appTypeface(Context c, int style) {
+        return typefaceForFontChoice(c == null ? "orbit_default" : Prefs.appFont(c), style);
+    }
+
+    public static float textScaleXForFontChoice(String choice) {
+        // Keep Condensed visibly distinct even on OEM builds that alias the
+        // sans-serif-condensed family back to the standard sans face.
+        return "condensed".equals(choice) ? 0.88f : 1.0f;
+    }
+
+    public static float letterSpacingForFontChoice(String choice) {
+        // Small spacing differences reinforce the intended families without
+        // distorting layout. Monospace gets a subtle code-like rhythm; Light gets
+        // a touch of air so it cannot visually collapse into Orbit Default.
+        if ("monospace".equals(choice)) return 0.035f;
+        if ("light".equals(choice)) return 0.012f;
+        return 0.0f;
+    }
+
+    private static float appTextScaleX(Context c) {
+        return textScaleXForFontChoice(c == null ? "orbit_default" : Prefs.appFont(c));
+    }
+
+    private static float appLetterSpacing(Context c) {
+        return letterSpacingForFontChoice(c == null ? "orbit_default" : Prefs.appFont(c));
+    }
+
+    private static void applyTypography(TextView text, int style) {
+        if (text == null) return;
+        // Recorded before anything is drawn, so every later pass re-applies the weight Orbit asked
+        // for rather than the weight the matched font happened to report.
+        TYPOGRAPHY_STYLE.put(text, style);
+        if (INTENTIONAL_MONOSPACE.containsKey(text)) {
+            text.setTypeface(Typeface.MONOSPACE, style);
+            text.setTextScaleX(1f);
+            text.setLetterSpacing(0f);
+            TYPOGRAPHY_APPLIED.put(text, true);
+            return;
+        }
+        FontPreview preview = FONT_PREVIEWS.get(text);
+        if (preview != null) {
+            text.setTypeface(typefaceForFontChoice(preview.choice, preview.style));
+            text.setTextScaleX(textScaleXForFontChoice(preview.choice));
+            text.setLetterSpacing(letterSpacingForFontChoice(preview.choice));
+        } else {
+            text.setTypeface(appTypeface(text.getContext(), style));
+            text.setTextScaleX(appTextScaleX(text.getContext()));
+            text.setLetterSpacing(appLetterSpacing(text.getContext()));
+        }
+        TYPOGRAPHY_APPLIED.put(text, true);
+    }
+
+    /**
+     * Changes the weight a label is meant to have, and records that as its new intent.
+     *
+     * <p>The supported way to re-weight an existing label. Calling {@code setTypeface} directly
+     * would change what is drawn now and leave the recorded intent saying something else, so the
+     * next typography pass would quietly undo it - which is the whole class of bug
+     * {@link #TYPOGRAPHY_STYLE} exists to end. Used where a weight legitimately follows state, such
+     * as the selected preset's name in Theme Studio.
+     */
+    public static void setTextWeight(TextView text, boolean bold) {
+        if (text == null) return;
+        applyTypography(text, bold ? Typeface.BOLD : Typeface.NORMAL);
+    }
+
+    /** Marks a Look & Feel sample as an intentional font preview. */
+    public static void applyFontPreview(TextView text, String choice, int style) {
+        if (text == null) return;
+        FONT_PREVIEWS.put(text, new FontPreview(choice, style));
+        applyTypography(text, style);
+    }
+
+    /** Preserve intentional code typography while global Orbit font watchers run. */
+    public static void applyCodeTypeface(TextView text) {
+        if (text == null) return;
+        INTENTIONAL_MONOSPACE.put(text, true);
+        applyTypography(text, Typeface.NORMAL);
+    }
+
+    /**
+     * The weight to re-apply to a label, preferring what Orbit asked for over what the font says.
+     *
+     * <p>One lookup, shared by the two passes that re-apply typography, so neither of them can go
+     * back to guessing on its own.
+     */
+    private static int intendedStyle(TextView text) {
+        Integer intended = TYPOGRAPHY_STYLE.get(text);
+        if (intended != null) return intended;
+        Typeface current = text.getTypeface();
+        return current == null ? Typeface.NORMAL : current.getStyle();
+    }
+
+    /** Apply the saved Orbit font to every text-bearing child in a rendered surface. */
+    public static void applyTypography(View root) {
+        if (root == null) return;
+        if (root instanceof TextView) {
+            TextView text = (TextView) root;
+            applyTypography(text, intendedStyle(text));
+        }
+        if (root instanceof ViewGroup) {
+            ViewGroup group = (ViewGroup) root;
+            for (int i = 0; i < group.getChildCount(); i++) applyTypography(group.getChildAt(i));
+        }
+    }
+
+    /**
+     * Keeps programmatically added Orbit controls on the selected app font. The
+     * watcher is installed only on Orbit-owned Activity/dialog roots, never on
+     * system pickers, permission panels, or other Android-owned windows.
+     */
+    public static void watchTypography(View root) {
+        if (root == null) return;
+        applyTypography(root);
+        if (TYPOGRAPHY_WATCHED.put(root, true) != null) return;
+
+        ViewTreeObserver.OnGlobalLayoutListener listener = () -> applyTypographyToNewViews(root);
+        root.getViewTreeObserver().addOnGlobalLayoutListener(listener);
+        root.addOnAttachStateChangeListener(new View.OnAttachStateChangeListener() {
+            @Override public void onViewAttachedToWindow(View v) {}
+
+            @Override public void onViewDetachedFromWindow(View v) {
+                ViewTreeObserver observer = v.getViewTreeObserver();
+                if (observer.isAlive()) observer.removeOnGlobalLayoutListener(listener);
+                TYPOGRAPHY_WATCHED.remove(v);
+                v.removeOnAttachStateChangeListener(this);
+            }
+        });
+    }
+
+    private static void applyTypographyToNewViews(View root) {
+        if (root == null) return;
+        if (root instanceof TextView && !TYPOGRAPHY_APPLIED.containsKey(root)) {
+            TextView text = (TextView) root;
+            applyTypography(text, intendedStyle(text));
+        }
+        if (root instanceof ViewGroup) {
+            ViewGroup group = (ViewGroup) root;
+            for (int i = 0; i < group.getChildCount(); i++) {
+                applyTypographyToNewViews(group.getChildAt(i));
+            }
+        }
+    }
+
+    /**
+     * Prepares an app-owned dialog before it is shown.
+     *
+     * <p>PopupWindow motion belongs to WindowManager, but AlertDialog geometry must already be
+     * final when its window appears. In particular, scaling the dialog window can trigger a
+     * visible positioning/relayout hop on Samsung. The window therefore owns only a fade-only
+     * exit; Orbit's entrance transform is applied to the decor view inside that stable window.
+     */
+    public static void prepareOrbitDialog(AlertDialog dialog, Drawable background) {
+        if (dialog == null || dialog.getWindow() == null) return;
+        Window window = dialog.getWindow();
+        window.setWindowAnimations(R.style.OrbitDialogWindowAnimation);
+        if (background != null) window.setBackgroundDrawable(background);
+        View decor = window.getDecorView();
+        decor.setForceDarkAllowed(false);
+        watchTypography(decor);
+        decor.animate().cancel();
+        decor.setTranslationX(0f);
+        decor.setTranslationY(0f);
+        if (animationsEnabled()) {
+            // This happens before Dialog.show(), so the first submitted frame cannot flash at 1x.
+            decor.setAlpha(0f);
+            decor.setScaleX(ORBIT_DIALOG_ENTER_SCALE);
+            decor.setScaleY(ORBIT_DIALOG_ENTER_SCALE);
+        } else {
+            finishOrbitDialogEntrance(decor);
+        }
+    }
+
+    /** Runs the canonical entrance on laid-out content without changing WindowManager geometry. */
+    private static void animateOrbitDialogEntrance(AlertDialog dialog) {
+        if (dialog == null || dialog.getWindow() == null) return;
+        View decor = dialog.getWindow().getDecorView();
+        if (!animationsEnabled()) {
+            finishOrbitDialogEntrance(decor);
+            return;
+        }
+        decor.postOnAnimation(() -> {
+            if (!dialog.isShowing()) return;
+            decor.setPivotX(decor.getWidth() / 2f);
+            decor.setPivotY(decor.getHeight() / 2f);
+            decor.animate().cancel();
+            decor.animate()
+                    .alpha(1f)
+                    .scaleX(1f)
+                    .scaleY(1f)
+                    .setDuration(ORBIT_DIALOG_ENTER_MS)
+                    .setInterpolator(new DecelerateInterpolator())
+                    .start();
+        });
+    }
+
+    private static void finishOrbitDialogEntrance(View decor) {
+        if (decor == null) return;
+        decor.animate().cancel();
+        decor.setAlpha(1f);
+        decor.setScaleX(1f);
+        decor.setScaleY(1f);
+        decor.setTranslationX(0f);
+        decor.setTranslationY(0f);
+    }
+
+    /** Immediately applies the selected font after Android inflates dialog actions/title views. */
+    public static void applyDialogTypography(AlertDialog dialog) {
+        if (dialog == null || dialog.getWindow() == null) return;
+        watchTypography(dialog.getWindow().getDecorView());
+        applyTypography(dialog.getWindow().getDecorView());
+    }
+
+    /** Applies Orbit's readable dialog foregrounds without flattening custom-view hierarchy. */
+    public static void applyOrbitDialogColors(AlertDialog dialog, Context c) {
+        if (dialog == null) return;
+        if (dialog.getWindow() != null) {
+            ensureReadableDialogText(dialog.getWindow().getDecorView());
+        }
+        TextView message = dialog.findViewById(android.R.id.message);
+        if (message != null) message.setTextColor(TEXT);
+        if (c != null) {
+            int titleId = c.getResources().getIdentifier("alertTitle", "id", "android");
+            if (titleId != 0) {
+                TextView title = dialog.findViewById(titleId);
+                if (title != null) title.setTextColor(TEXT);
+            }
+        }
+        int actionColor = accent(c);
+        Button positive = dialog.getButton(AlertDialog.BUTTON_POSITIVE);
+        Button negative = dialog.getButton(AlertDialog.BUTTON_NEGATIVE);
+        Button neutral = dialog.getButton(AlertDialog.BUTTON_NEUTRAL);
+        if (positive != null) positive.setTextColor(actionColor);
+        if (negative != null) negative.setTextColor(actionColor);
+        if (neutral != null) neutral.setTextColor(actionColor);
+    }
+
+    /**
+     * One hardened styling path for normal Orbit-owned dialogs. It owns the
+     * surface, motion, Force Dark behavior, selected typography, readable text,
+     * and action colors so callers cannot accidentally omit one of those pieces.
+     */
+    public static void styleOrbitDialog(AlertDialog dialog, Context c, boolean destructive) {
+        styleOrbitDialog(dialog, c, destructive, null);
+    }
+
+    public static void styleOrbitDialog(AlertDialog dialog, Context c, boolean destructive,
+                                        Runnable afterShown) {
+        styleOrbitDialog(dialog, c, destructive, rounded(SURFACE, 22, c), -1f, afterShown);
+    }
+
+    /** Shared styling with an optional Orbit-owned surface variant and dim strength. */
+    public static void styleOrbitDialog(AlertDialog dialog, Context c, boolean destructive,
+                                        Drawable background, float dimAmount,
+                                        Runnable afterShown) {
+        if (dialog == null || c == null) return;
+        prepareOrbitDialog(dialog, background);
+        if (dimAmount >= 0f && dialog.getWindow() != null) {
+            dialog.getWindow().setDimAmount(dimAmount);
+        }
+        dialog.setOnShowListener(ignore -> {
+            applyDialogTypography(dialog);
+            applyOrbitDialogColors(dialog, c);
+            Button positive = dialog.getButton(AlertDialog.BUTTON_POSITIVE);
+            if (destructive && positive != null) {
+                positive.setTextColor(Color.rgb(239, 105, 105));
+            }
+            if (afterShown != null) afterShown.run();
+            animateOrbitDialogEntrance(dialog);
+        });
+    }
+
+    /**
+     * Ends an Orbit-owned confirmation before opening an Android-owned surface.
+     *
+     * <p>The dialog has already used {@link #styleOrbitDialog} for its entrance. Only this one
+     * exit is made instant, because the package installer, permission controller, or picker owns
+     * the next window and its animation. Letting both windows animate at once produces the
+     * double-scale handoff seen on Samsung devices; copying or restyling the system surface would
+     * be both brittle and outside Orbit's ownership.
+     */
+    public static void handoffOrbitDialogToSystemSurface(AlertDialog dialog,
+                                                          Runnable openSystemSurface) {
+        if (openSystemSurface == null) return;
+        if (dialog == null) {
+            openSystemSurface.run();
+            return;
+        }
+        Window window = dialog.getWindow();
+        if (window != null) window.setWindowAnimations(0);
+        dialog.dismiss();
+        new Handler(Looper.getMainLooper()).post(openSystemSurface);
+    }
+
+    /** Corrects only low-contrast inherited OEM colors, preserving readable accent/muted text. */
+    private static void ensureReadableDialogText(View view) {
+        if (view == null) return;
+        if (view instanceof TextView &&
+                (!(view instanceof Button) || view instanceof CompoundButton)) {
+            TextView text = (TextView) view;
+            if (contrastRatio(text.getCurrentTextColor(), SURFACE) < 3.0d) {
+                text.setTextColor(TEXT);
+            }
+            if (text.getHint() != null && contrastRatio(
+                    text.getHintTextColors().getDefaultColor(), SURFACE) < 3.0d) {
+                text.setHintTextColor(MUTED);
+            }
+        }
+        if (view instanceof ViewGroup) {
+            ViewGroup group = (ViewGroup) view;
+            for (int i = 0; i < group.getChildCount(); i++) {
+                ensureReadableDialogText(group.getChildAt(i));
+            }
+        }
+    }
+
+    /**
+     * WCAG-style contrast ratio between two opaque colors, 1.0 when identical.
+     *
+     * <p>The arithmetic itself lives in {@link OrbitContrast}, which is where every readability
+     * threshold Orbit applies is now written down. This stays as the name the rest of the app
+     * already calls.
+     */
+    public static double contrastRatio(int foreground, int background) {
+        return OrbitContrast.contrastRatio(foreground, background);
+    }
+
+    /** Orbit-styled determinate progress for measurable foreground work. */
+    public static ProgressBar horizontalProgress(Context c) {
+        ProgressBar bar = new ProgressBar(c, null, android.R.attr.progressBarStyleHorizontal);
+        GradientDrawable track = rounded(SURFACE_3, 99, c);
+        GradientDrawable fill = rounded(accent(c), 99, c);
+        ClipDrawable clippedFill = new ClipDrawable(
+                fill, android.view.Gravity.START, ClipDrawable.HORIZONTAL);
+        LayerDrawable layers = new LayerDrawable(new Drawable[]{track, clippedFill});
+        layers.setId(0, android.R.id.background);
+        layers.setId(1, android.R.id.progress);
+        bar.setProgressDrawable(layers);
+        bar.setIndeterminate(false);
+        bar.setMax(100);
+        bar.setProgress(0);
+        bar.setMinimumHeight(0);
+        bar.setMinimumWidth(0);
+        return bar;
+    }
+
+    private static final class FontPreview {
+        final String choice;
+        final int style;
+
+        FontPreview(String choice, int style) {
+            this.choice = choice == null ? "orbit_default" : choice;
+            this.style = style;
+        }
+    }
+
+
+    private static GradientDrawable orbitCircle(int color) {
+        GradientDrawable d = new GradientDrawable();
+        d.setShape(GradientDrawable.OVAL);
+        d.setColor(color);
+        return d;
+    }
+
+    public static int orbitShellColor() {
+        return Color.rgb(17, 19, 26);
+    }
+
+    public static int orbitCoreColor() {
+        return BG;
+    }
+
+    public static int orbitSatelliteColor(Context c) {
+        return orbitSatelliteColor(accent(c));
+    }
+
+    /**
+     * The satellite tint for one accent, rather than for the applied one.
+     *
+     * <p>The derivation lives here in one place so a mark drawn in a theme that is not in force —
+     * the Theme Studio preview — cannot end up lifting its satellite differently from the mark in
+     * the header above it.
+     */
+    public static int orbitSatelliteColor(int accent) {
+        return blend(accent, Color.WHITE, 0.16f);
+    }
+
+    /**
+     * Accent-aware Orbit brand mark used in headers and the overlay. Geometry is
+     * intentionally identical to res/drawable/ic_orbit.xml so the in-app mark
+     * always looks like the actual Orbit app icon. Only the brand ring (and the
+     * very subtle satellite tint) follows the user's selected accent.
+     */
+    public static View orbitMark(Context c, float sizeDp) {
+        syncTheme(c);
+        return orbitMark(c, sizeDp, LIVE_ACCENT);
+    }
+
+    /**
+     * The same mark, drawn in an accent that is not the one Orbit is using.
+     *
+     * <p>For the Theme Studio preview, which shows a draft. {@link #orbitMark(Context, float)}
+     * deliberately resolves the accent inside {@code onDraw} so a mark already on screen turns the
+     * moment the applied accent does; a preview needs the opposite, because the whole point of it
+     * is to show a theme that has not been applied. Same geometry either way: there is one Orbit
+     * mark, and the difference between these two is which accent it is asked to wear.
+     */
+    public static View orbitMark(Context c, float sizeDp, int accent) {
+        final int markSize = dp(c, sizeDp);
+        final int shellColor = orbitShellColor();
+        final boolean live = accent == LIVE_ACCENT;
+
+        View mark = new View(c) {
+            private final Paint paint = new Paint(Paint.ANTI_ALIAS_FLAG);
+
+            @Override
+            protected void onDraw(Canvas canvas) {
+                super.onDraw(canvas);
+
+                // ic_orbit.xml uses a 108 x 108 viewport. Draw those exact same
+                // circles inside the requested mark size, centered in the host view.
+                float viewportScale = markSize / 108f;
+                float left = (getWidth() - markSize) / 2f;
+                float top = (getHeight() - markSize) / 2f;
+
+                paint.setColor(shellColor);
+                canvas.drawCircle(left + 54f * viewportScale, top + 54f * viewportScale,
+                        50f * viewportScale, paint);
+
+                // Resolve theme colors at draw time so an already-visible Orbit mark
+                // reacts immediately when Settings changes the accent.
+                int ring = live ? accent(c) : accent;
+                paint.setColor(ring);
+                canvas.drawCircle(left + 54f * viewportScale, top + 54f * viewportScale,
+                        32f * viewportScale, paint);
+
+                // The app icon uses the same dark fill for its shell and inner core.
+                paint.setColor(shellColor);
+                canvas.drawCircle(left + 54f * viewportScale, top + 54f * viewportScale,
+                        20f * viewportScale, paint);
+
+                paint.setColor(orbitSatelliteColor(ring));
+                canvas.drawCircle(left + 78f * viewportScale, top + 34f * viewportScale,
+                        7f * viewportScale, paint);
+            }
+        };
+        mark.setTag("orbit_mark");
+        return mark;
+    }
+
+    /**
+     * The accent value that means "whatever Orbit is using right now, asked for at draw time".
+     *
+     * <p>Fully transparent, so it can never collide with a real accent: every colour Orbit resolves
+     * an accent to is opaque.
+     */
+    private static final int LIVE_ACCENT = 0;
+
+
+    /**
+     * Applies Android system-bar/display-cutout insets to an Activity content view
+     * while preserving the view's design padding. When imeAware is true, the bottom
+     * padding tracks the larger of the navigation bar and IME so composers stay
+     * above Samsung Keyboard on edge-to-edge Android 15/16 windows.
+     */
+    /**
+     * Light or dark status- and navigation-bar icons, decided by the page they sit on.
+     *
+     * <p>Orbit could hardcode light icons for as long as every Orbit page was dark. A theme can now
+     * name a light background, so the choice is measured instead — against the page, never against
+     * the accent, because a bright accent on a dark page is still a dark page. Applied centrally so
+     * every screen gets it rather than each one deciding for itself.
+     */
+    public static void applySystemBarIcons(Window window) {
+        if (window == null) return;
+        try {
+            View decor = window.getDecorView();
+            int flags = decor.getSystemUiVisibility();
+            int light = View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR;
+            int lightNav = Build.VERSION.SDK_INT >= 26
+                    ? View.SYSTEM_UI_FLAG_LIGHT_NAVIGATION_BAR : 0;
+            flags = OrbitContrast.prefersDarkInk(BG)
+                    ? (flags | light | lightNav) : (flags & ~light & ~lightNav);
+            decor.setSystemUiVisibility(flags);
+        } catch (Exception ignored) {}
+    }
+
+    public static void applyActivityInsets(Activity activity, View root, boolean imeAware) {
+        if (activity == null || root == null) return;
+        syncTheme(activity);
+        applyPageTransition(activity);
+        watchTypography(root);
+        Window window = activity.getWindow();
+        window.setStatusBarColor(BG);
+        window.setNavigationBarColor(BG);
+        // The window's own background comes from Theme.Orbit, which names a fixed colour and so
+        // cannot follow a themed page. Setting it here means the frame before a page has drawn —
+        // launching, navigating, rebuilding — is the page's colour rather than the old default.
+        window.setBackgroundDrawable(new ColorDrawable(BG));
+        applySystemBarIcons(window);
+        window.clearFlags(WindowManager.LayoutParams.FLAG_ALT_FOCUSABLE_IM | WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE);
+        window.setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE);
+        if (Build.VERSION.SDK_INT >= 30) window.setDecorFitsSystemWindows(false);
+
+        final int baseLeft = root.getPaddingLeft();
+        final int baseTop = root.getPaddingTop();
+        final int baseRight = root.getPaddingRight();
+        final int baseBottom = root.getPaddingBottom();
+
+        root.setOnApplyWindowInsetsListener((v, insets) -> {
+            int left, top, right, bottom;
+            if (Build.VERSION.SDK_INT >= 30) {
+                Insets bars = insets.getInsets(WindowInsets.Type.systemBars() | WindowInsets.Type.displayCutout());
+                Insets ime = insets.getInsets(WindowInsets.Type.ime());
+                left = bars.left;
+                top = bars.top;
+                right = bars.right;
+                bottom = imeAware ? Math.max(bars.bottom, ime.bottom) : bars.bottom;
+            } else {
+                left = insets.getSystemWindowInsetLeft();
+                top = insets.getSystemWindowInsetTop();
+                right = insets.getSystemWindowInsetRight();
+                bottom = insets.getSystemWindowInsetBottom();
+            }
+            v.setPadding(baseLeft + left, baseTop + top, baseRight + right, baseBottom + bottom);
+            return insets;
+        });
+        root.requestApplyInsets();
+    }
+
+    /**
+     * How far a conversation dissolves before it reaches fixed chrome.
+     *
+     * <p>Restrained on purpose. This is an edge treatment, not an effect: long enough that a line
+     * of text stops being cut in half by a hard boundary, short enough that it never reads as a
+     * vignette over the reply.
+     *
+     * <p>The first version of this was 30dp. It fixed the hard cut but overshot in the other
+     * direction on the device: a chat line is roughly 17-20dp tall at Orbit's default sizes, so a
+     * 30dp ramp always had most of one line dimmed and the next one already going, which reads as
+     * a dark band rather than as text passing behind the chrome. It showed worst above the
+     * composer, because a long answer keeps content below the fold and the bottom edge therefore
+     * sits at full strength the whole time the top edge is still off.
+     *
+     * <p>18dp is deliberately just under one line. At most one line is ever in transition, the
+     * line above it stays fully readable, and the ramp is still long enough that no glyph is
+     * sliced by a hard boundary. This is an intensity value, not a mechanism: how the fade is
+     * produced, and every property that depends on it, is unchanged.
+     */
+    public static final float CONVERSATION_FADE_DP = 18f;
+
+    /**
+     * The least breathing room a conversation keeps at each end.
+     *
+     * <p>Deliberately smaller than the fade, and unchanged by its retuning. It is not what makes
+     * the first and last lines readable — the fade's strength falls to nothing at both scroll
+     * extremes, so those lines are already never obscured. This exists only so a bubble is not
+     * flush against the chrome, and it is kept small because the overlay's conversation is a few
+     * hundred dp tall and cannot afford to spend a large share of itself on padding.
+     */
+    public static final float CONVERSATION_EDGE_INSET_DP = 10f;
+
+    /**
+     * Line rhythm shared by every chat bubble, user and assistant, in both surfaces.
+     *
+     * <p>These used to be four separate literals that had drifted apart (1.08, 1.12, 1.13), so a
+     * user message and the reply beneath it were set on subtly different rhythms for no reason
+     * anyone had chosen. One value, applied through {@link #applyBubbleTextMetrics}, keeps them
+     * matched whichever Orbit font and chat text size are selected.
+     */
+    public static final float CHAT_LINE_SPACING = 1.12f;
+
+    /**
+     * The vertical text metrics every chat bubble shares.
+     *
+     * <p>Deliberately does not touch {@code includeFontPadding}. The reserve a font asks for above
+     * its ascent and below its descent is what keeps tall accents and deep descenders from being
+     * clipped, it is identical for the user and assistant paths, and Orbit's selectable serif font
+     * needs more of it than the default one does. Vertical balance inside a bubble is a question
+     * of the padding and margins around the text, not of taking that reserve away.
+     */
+    public static void applyBubbleTextMetrics(TextView text) {
+        if (text == null) return;
+        text.setLineSpacing(0, CHAT_LINE_SPACING);
+    }
+
+    /**
+     * Softens where a conversation meets the header above it and the composer below it.
+     *
+     * <p>Both surfaces used to end at a hard rectangle: the message ScrollView is a sibling of the
+     * header and the composer, so it clipped mid-glyph at both edges and a long answer looked like
+     * it was being read through a slot rather than scrolling underneath Orbit's chrome.
+     *
+     * <p>This uses the platform's own vertical fading edges rather than gradient overlays, for
+     * three reasons that matter here. They fade content to <em>transparent</em> instead of
+     * painting a colour over it, so the conversation dissolves into whatever is actually behind
+     * it — the AMOLED true black, the overlay sheet's accent gradient, any theme — with no colour
+     * derived, guessed, or hard-coded, and nothing to keep in sync when the accent changes. They
+     * are drawn, not laid out, so there is no extra view to intercept touches, swallow a text
+     * selection, block a message action, or need repositioning when the keyboard opens, the
+     * attachment tray appears, or the overlay is stretched. And their strength is derived from
+     * scroll position, so the fade is absent at the very top and the very bottom: every line can
+     * always be scrolled fully into clear view, which a fixed scrim over the edges could not
+     * promise.
+     *
+     * <p>The content view is only given {@link #CONVERSATION_EDGE_INSET_DP} as a floor, so a bubble
+     * is never flush against the chrome. It deliberately is not padded by the fade's own depth:
+     * that would spend a large share of the overlay's short conversation on empty space to solve a
+     * problem the fade does not have.
+     */
+    public static void applyConversationEdgeFade(ScrollView scroll, View content) {
+        if (scroll == null) return;
+        Context c = scroll.getContext();
+        scroll.setVerticalFadingEdgeEnabled(true);
+        scroll.setHorizontalFadingEdgeEnabled(false);
+        scroll.setFadingEdgeLength(dp(c, CONVERSATION_FADE_DP));
+        if (content == null) return;
+        int inset = dp(c, CONVERSATION_EDGE_INSET_DP);
+        content.setPadding(content.getPaddingLeft(),
+                Math.max(content.getPaddingTop(), inset),
+                content.getPaddingRight(),
+                Math.max(content.getPaddingBottom(), inset));
+    }
+
+    public static int dp(Context c, float value) {
+        return Math.round(TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, value, c.getResources().getDisplayMetrics()));
+    }
+
+    public static int sp(Context c, float value) {
+        return Math.round(TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_SP, value, c.getResources().getDisplayMetrics()));
+    }
+
+    public static int accent(Context c) {
+        String chosen = Prefs.get(c).getString(Prefs.ACCENT, "dynamic");
+        return accentForName(c, chosen);
+    }
+
+    public static int accentForName(Context c, String chosen) {
+        // A theme may name an accent Orbit's catalogue never had. Every existing caller keeps
+        // working because a catalogue key is still a catalogue key; only the hex form is new.
+        if (OrbitTheme.isHexToken(chosen)) return OrbitTheme.hexTokenColor(chosen);
+        OrbitPalette.Entry named = OrbitPalette.entry(chosen);
+        if (named != null) return named.color;
+        if (Build.VERSION.SDK_INT >= 31) {
+            int id = c.getResources().getIdentifier("system_accent1_500", "color", "android");
+            if (id != 0) {
+                try { return c.getColor(id); } catch (Exception ignored) {}
+            }
+        }
+        return DEFAULT_ACCENT;
+    }
+
+    /**
+     * Foreground color for controls filled with the current accent. Light pastel
+     * accents need dark content to preserve contrast; darker accents use white.
+     *
+     * <p>The cutoff is deliberately the one Orbit shipped rather than
+     * {@link OrbitContrast#prefersDarkInk}, which is the better rule and is what every new Theme
+     * Studio surface uses. Applying it here would flip the foreground on Blue, Rose, Violet and
+     * Mint for everyone already using them, which is a redesign of the existing app dressed up as
+     * a correctness fix.
+     */
+    public static int onAccent(int accent) {
+        return OrbitContrast.simpleLuminance(accent) > OrbitContrast.ON_ACCENT_CUTOFF
+                ? Color.rgb(22, 25, 33) : Color.WHITE;
+    }
+
+    public static int onAccent(Context c) {
+        return onAccent(accent(c));
+    }
+
+    /** Resolve a conversation bubble preference while preserving Orbit's classic defaults. */
+    public static int bubbleFill(Context c, String choice, int classicFill) {
+        if (choice == null || "classic".equals(choice)) return classicFill;
+        if ("accent".equals(choice)) return accent(c);
+        if (OrbitTheme.isHexToken(choice)) return OrbitTheme.hexTokenColor(choice);
+        return accentForName(c, choice);
+    }
+
+    public static int userBubbleFill(Context c, int classicFill) {
+        return bubbleFill(c, Prefs.userBubbleColor(c), classicFill);
+    }
+
+    public static int assistantBubbleFill(Context c, int classicFill) {
+        return bubbleFill(c, Prefs.assistantBubbleColor(c), classicFill);
+    }
+
+    /**
+     * Text color chosen for readable contrast on a custom bubble fill.
+     *
+     * <p>Same reasoning as {@link #onAccent}: the shipped cutoff is preserved so that a bubble
+     * colour somebody chose in an earlier release keeps the foreground it has always had. Where a
+     * pairing is genuinely poor, Theme Studio says so rather than silently changing it.
+     */
+    public static int onBubble(int fill) {
+        return OrbitContrast.simpleLuminance(fill) > OrbitContrast.ON_BUBBLE_CUTOFF
+                ? CLASSIC_DARK_TEXT : CLASSIC_TEXT;
+    }
+
+
+    /**
+     * Minimum contrast a link must reach against the surface it sits on. Non-text UI, because a
+     * link is a short coloured run inside body copy rather than a paragraph of its own.
+     */
+    private static final double LINK_MIN_CONTRAST = OrbitContrast.LARGE_TEXT_MIN;
+
+    /**
+     * A readable link colour for text drawn on {@code background}, using the accent in force.
+     *
+     * <p>Links are a derived theme token, not a preference: there is nothing to configure, and a
+     * link follows the accent by construction. When the accent already reads on the surface behind
+     * it, that is the link exactly; when it does not, {@link OrbitContrast#readableAccentOn} moves
+     * it along its own hue until it does, so a Nova link still looks like Nova rather than like a
+     * generic fallback.
+     *
+     * <p>Colour is never the only cue: inline links keep their underline, so a link remains
+     * identifiable even where hue alone would not carry it.
+     */
+    public static int linkColorOn(Context c, int background) {
+        return linkColorFor(accent(c), background);
+    }
+
+    /**
+     * The same derivation from an explicit accent.
+     *
+     * <p>This is what the Theme Studio preview calls. Without it the preview would have to ask for
+     * the accent Orbit is <em>currently</em> using, which is precisely the colour a draft has not
+     * been applied with yet, and the sample link would sit there unchanged while every other colour
+     * on the screen moved.
+     */
+    public static int linkColorFor(int accent, int background) {
+        return OrbitContrast.readableAccentOn(accent, background, LINK_MIN_CONTRAST);
+    }
+
+    /**
+     * How far an inline code pill is lifted away from the surface behind it.
+     *
+     * <p>Enough to read as a distinct object at a glance on every bubble Orbit offers; little
+     * enough that a sentence with four code terms in it still reads as a sentence.
+     */
+    private static final float INLINE_CODE_TINT_SHARE = 0.13f;
+
+    /**
+     * The fill for an inline code pill drawn on {@code surface}.
+     *
+     * <p>Derived, never fixed. It is the surface itself moved a small share of the way toward
+     * whichever ink actually contrasts with it, so the pill lightens on a dark classic bubble and
+     * darkens on a pastel or bright accent one, and follows AMOLED, Dynamic accent, and any
+     * user-chosen bubble colour without any of them being enumerated here. The old fixed grey
+     * could not do that: on a light bubble it was a dark hole, and on a slate one it vanished.
+     */
+    public static int inlineCodeTint(int surface) {
+        return blend(bestInkOn(surface), surface, INLINE_CODE_TINT_SHARE);
+    }
+
+    /** Readable ink for text sitting on {@link #inlineCodeTint}. */
+    public static int inlineCodeInk(int surface) {
+        return bestInkOn(inlineCodeTint(surface));
+    }
+
+    /**
+     * Whichever of Orbit's dark or light ink actually contrasts more with this surface.
+     * {@link #onBubble} picks by a single luminance cutoff, which leaves mid-luminance colours
+     * such as the rose accent with the weaker of the two.
+     */
+    private static int bestInkOn(int background) {
+        return OrbitContrast.inkOn(background);
+    }
+
+    public static int blend(int a, int b, float amountA) {
+        return OrbitContrast.blend(a, b, amountA);
+    }
+
+    public static int withAlpha(int color, int alpha) {
+        return Color.argb(Math.max(0, Math.min(255, alpha)), Color.red(color), Color.green(color), Color.blue(color));
+    }
+
+    public static GradientDrawable rounded(int color, float radiusDp, Context c) {
+        GradientDrawable d = new GradientDrawable();
+        d.setColor(color);
+        d.setCornerRadius(dp(c, radiusDp));
+        return d;
+    }
+
+    /**
+     * The background every conversation bubble in Orbit is drawn with.
+     *
+     * <p>One call, used by full chat, by the side-button overlay, by the rich response renderer,
+     * by the streaming view, by the thinking row and by the Theme Studio preview. Before this they
+     * each wrote {@code rounded(fill, 18, c)} or reached for {@link #RADIUS_BUBBLE} directly, which
+     * was harmless while the answer was a constant and becomes two different answers the moment it
+     * is a setting. The overlay and full chat disagreeing about the shape of a bubble is precisely
+     * the failure this exists to make impossible.
+     *
+     * <p>Both the roundness and the optional outline come from the styling Orbit is entitled to
+     * draw right now, so a Free device gets the shape it has always had without any caller knowing
+     * that entitlement was involved.
+     */
+    public static GradientDrawable bubbleSurface(Context c, int fill) {
+        return bubbleSurface(c, fill, accent(c), OrbitProStyle.live(c));
+    }
+
+    /**
+     * The same bubble, for a theme that is not the applied one.
+     *
+     * <p>The accent and the styling are passed in rather than read, because the Theme Studio
+     * preview draws a draft: reading either from the live app is what would leave the preview's
+     * bubbles holding still while everything around them moved.
+     */
+    public static GradientDrawable bubbleSurface(Context c, int fill, int accent,
+                                                 OrbitProStyle style) {
+        OrbitProStyle resolved = style == null ? OrbitProStyle.DEFAULT : style;
+        GradientDrawable bubble = rounded(fill, resolved.bubbleRadiusDp, c);
+        int width = resolved.bubbleOutlineWidthPx(c);
+        if (width > 0) bubble.setStroke(width, resolved.bubbleOutlineColor(accent, fill));
+        return bubble;
+    }
+
+    public static GradientDrawable gradientSheet(Context c) {
+        return gradientSheet(c, 30f);
+    }
+
+    public static GradientDrawable gradientSheet(Context c, float radiusDp) {
+        int accent = accent(c);
+        GradientDrawable d = new GradientDrawable(
+                GradientDrawable.Orientation.TOP_BOTTOM,
+                new int[]{blend(accent, BG, 0.055f), BG});
+        d.setCornerRadius(dp(c, Math.max(0f, radiusDp)));
+        d.setStroke(dp(c, 1), withAlpha(blend(accent, Color.WHITE, 0.32f), 58));
+        return d;
+    }
+
+    public static GradientDrawable outlined(int fill, int stroke, float radiusDp, Context c) {
+        GradientDrawable d = rounded(fill, radiusDp, c);
+        d.setStroke(dp(c, 1), stroke);
+        return d;
+    }
+
+    public static Drawable ripple(int fill, int rippleColor, float radiusDp, Context c) {
+        GradientDrawable content = rounded(fill, radiusDp, c);
+        GradientDrawable mask = rounded(Color.WHITE, radiusDp, c);
+        return new RippleDrawable(ColorStateList.valueOf(withAlpha(rippleColor, 56)), content, mask);
+    }
+
+    public static Drawable rippleOutlined(int fill, int stroke, int rippleColor, float radiusDp, Context c) {
+        GradientDrawable content = outlined(fill, stroke, radiusDp, c);
+        GradientDrawable mask = rounded(Color.WHITE, radiusDp, c);
+        return new RippleDrawable(ColorStateList.valueOf(withAlpha(rippleColor, 56)), content, mask);
+    }
+
+    public interface OrbitMenuChoice {
+        void onChoice(int index, String label);
+    }
+
+    /**
+     * Orbit's dark popup menu used instead of Android's stock white PopupMenu.
+     * selectedIndex < 0 creates a normal action menu; otherwise the active row
+     * gets an accent dot and accent-tinted surface.
+     */
+    /**
+     * Orbit's ordinary action button: the accent fill for the primary choice, an outlined
+     * surface for the secondary one. Shared by the Smart Vault screens (v0.8.1.0-beta.1) so they
+     * do not add another private copy of the same helper.
+     */
+    public static android.widget.Button button(Context c, String text, boolean primary) {
+        android.widget.Button b = new android.widget.Button(c);
+        b.setText(text);
+        b.setTextColor(primary ? onAccent(c) : TEXT);
+        b.setTextSize(14);
+        b.setAllCaps(false);
+        b.setSingleLine(true);
+        b.setPadding(dp(c, 14), 0, dp(c, 14), 0);
+        b.setBackground(primary
+                ? ripple(accent(c), onAccent(c), 15, c)
+                : rippleOutlined(SURFACE_2, withAlpha(accent(c), 60), accent(c), 15, c));
+        b.setMinHeight(0);
+        b.setMinimumHeight(0);
+        b.setStateListAnimator(null);
+        pressScale(b);
+        return b;
+    }
+
+    public static void showOrbitMenu(Context c, View anchor, String[] labels,
+                                     int selectedIndex, OrbitMenuChoice choice) {
+        showOrbitMenuInternal(c, anchor, labels, null, selectedIndex, -1, choice);
+    }
+
+    /**
+     * Action-menu variant for a row that opens an Orbit dialog. That one callback
+     * begins only after the shared popup exit motion finishes, preventing two
+     * independently positioned windows from fading/scaling over each other.
+     */
+    public static void showOrbitMenuWithDialogHandoff(Context c, View anchor, String[] labels,
+                                                       int dialogIndex, OrbitMenuChoice choice) {
+        showOrbitMenuInternal(c, anchor, labels, null, -1, dialogIndex, choice);
+    }
+
+    /** Font-picker variant whose labels preview the font they represent. */
+    public static void showOrbitFontMenu(Context c, View anchor, String[] fontKeys, String[] labels,
+                                         int selectedIndex, OrbitMenuChoice choice) {
+        if (fontKeys == null || labels == null || fontKeys.length != labels.length) {
+            showOrbitMenu(c, anchor, labels, selectedIndex, choice);
+            return;
+        }
+        showOrbitMenuInternal(c, anchor, labels, fontKeys, selectedIndex, -1, choice);
+    }
+
+    private static void showOrbitMenuInternal(Context c, View anchor, String[] labels,
+                                              String[] previewFontKeys, int selectedIndex,
+                                              int dialogHandoffIndex, OrbitMenuChoice choice) {
+        if (c == null || anchor == null || labels == null || labels.length == 0) return;
+
+        LinearLayout box = new LinearLayout(c);
+        box.setOrientation(LinearLayout.VERTICAL);
+        box.setPadding(dp(c, 6), dp(c, 6), dp(c, 6), dp(c, 6));
+        box.setBackground(outlined(SURFACE_2, withAlpha(accent(c), 72), 18, c));
+
+        int maxChars = 0;
+        for (String label : labels) {
+            if (label != null) maxChars = Math.max(maxChars, label.length());
+        }
+        // Compact enough for the strength selector, but still wide enough for
+        // actions such as "Rename chat". Avoid the oversized stock-like panel.
+        int widthDp = Math.max(180, Math.min(300, 132 + (maxChars * 7)));
+        int width = dp(c, widthDp);
+        PopupWindow popup = new PopupWindow(box, width,
+                android.view.ViewGroup.LayoutParams.WRAP_CONTENT, true);
+        popup.setOutsideTouchable(true);
+        popup.setTouchable(true);
+        popup.setClippingEnabled(true);
+        popup.setBackgroundDrawable(new ColorDrawable(Color.TRANSPARENT));
+        popup.setAnimationStyle(R.style.OrbitPopupAnimation);
+        if (Build.VERSION.SDK_INT >= 21) popup.setElevation(dp(c, 12));
+
+        for (int i = 0; i < labels.length; i++) {
+            final int index = i;
+            final String labelText = labels[i];
+            boolean selected = i == selectedIndex;
+
+            LinearLayout row = new LinearLayout(c);
+            row.setOrientation(LinearLayout.HORIZONTAL);
+            row.setGravity(android.view.Gravity.CENTER_VERTICAL);
+            row.setPadding(dp(c, 13), 0, dp(c, 10), 0);
+            row.setBackground(ripple(
+                    selected ? blend(accent(c), SURFACE_2, 0.16f) : SURFACE_2,
+                    accent(c), 13, c));
+
+            TextView label = text(c, labelText, 14, TEXT, selected);
+            if (previewFontKeys != null) {
+                String previewKey = previewFontKeys[i];
+                // Font-choice rows are previews first; keep every label at its
+                // normal face so the selected row does not disguise Light or
+                // otherwise change the font the user is trying to compare.
+                applyFontPreview(label, previewKey, Typeface.NORMAL);
+            }
+            row.addView(label, new LinearLayout.LayoutParams(
+                    0, android.view.ViewGroup.LayoutParams.WRAP_CONTENT, 1));
+
+            TextView marker = text(c, selected ? "●" : "", 14, accent(c), true);
+            marker.setGravity(android.view.Gravity.CENTER);
+            row.addView(marker, new LinearLayout.LayoutParams(dp(c, 26),
+                    android.view.ViewGroup.LayoutParams.MATCH_PARENT));
+
+            pressScale(row);
+            row.setOnClickListener(v -> {
+                if (choice == null) {
+                    popup.dismiss();
+                    return;
+                }
+                if (index == dialogHandoffIndex) {
+                    // Drive this one exit in the popup's own content hierarchy and
+                    // hand off from the real animation-completion callback. The
+                    // transparent window is dismissed before the dialog is posted,
+                    // avoiding Samsung WindowManager timing guesses and overlap.
+                    popup.setTouchable(false);
+                    box.animate().cancel();
+                    box.setPivotX(box.getWidth() / 2f);
+                    box.setPivotY(box.getHeight() / 2f);
+                    box.animate()
+                            .alpha(0f)
+                            .scaleX(0.992f)
+                            .scaleY(0.992f)
+                            .setDuration(ORBIT_POPUP_EXIT_MS)
+                            .setInterpolator(new AccelerateInterpolator())
+                            .withEndAction(() -> {
+                                // The content has already completed its exit. Do not
+                                // ask WindowManager to run a second popup exit while
+                                // the confirmation dialog begins.
+                                popup.setAnimationStyle(0);
+                                popup.dismiss();
+                                anchor.postOnAnimation(
+                                        () -> choice.onChoice(index, labelText));
+                            })
+                            .start();
+                } else {
+                    popup.dismiss();
+                    choice.onChoice(index, labelText);
+                }
+            });
+
+            LinearLayout.LayoutParams rowLp = new LinearLayout.LayoutParams(
+                    android.view.ViewGroup.LayoutParams.MATCH_PARENT, dp(c, 44));
+            if (i > 0) rowLp.topMargin = dp(c, 2);
+            box.addView(row, rowLp);
+        }
+
+        showAnchoredOrbitPopup(c, anchor, popup, width, labels.length, 44);
+    }
+
+    /**
+     * Compact icon+label action menu for a small set of choices, such as the actions on a held
+     * message. It shares {@link #showOrbitMenu}'s accent, motion, and screen-aware placement, and
+     * is deliberately a softer, more finished surface than a utility list: an accent-warmed sheet
+     * on Orbit's largest corner radius, each action's icon on its own accent chip, and generous
+     * touch rows. It does not take input focus, so the keyboard is left alone.
+     */
+    public static PopupWindow showOrbitActionMenu(Context c, View anchor, String[] labels, int[] icons,
+                                           OrbitMenuChoice choice) {
+        if (c == null || anchor == null || labels == null || labels.length == 0) return null;
+        boolean showIcons = icons != null && icons.length == labels.length;
+        int accent = accent(c);
+        int rowHeightDp = 46;
+
+        LinearLayout box = new LinearLayout(c);
+        box.setOrientation(LinearLayout.VERTICAL);
+        box.setPadding(dp(c, 6), dp(c, 6), dp(c, 6), dp(c, 6));
+        box.setBackground(actionMenuSheet(c, accent));
+
+        int maxChars = 0;
+        for (String label : labels) {
+            if (label != null) maxChars = Math.max(maxChars, label.length());
+        }
+        int widthDp = Math.max(170, Math.min(258, 100 + (showIcons ? 36 : 0) + (maxChars * 7)));
+        int width = dp(c, widthDp);
+        PopupWindow popup = new PopupWindow(box, width,
+                android.view.ViewGroup.LayoutParams.WRAP_CONTENT, false);
+        popup.setOutsideTouchable(true);
+        popup.setTouchable(true);
+        popup.setFocusable(false);
+        popup.setInputMethodMode(PopupWindow.INPUT_METHOD_NOT_NEEDED);
+        popup.setClippingEnabled(true);
+        popup.setBackgroundDrawable(new ColorDrawable(Color.TRANSPARENT));
+        popup.setAnimationStyle(R.style.OrbitPopupAnimation);
+        if (Build.VERSION.SDK_INT >= 21) popup.setElevation(dp(c, 14));
+
+        for (int i = 0; i < labels.length; i++) {
+            final int index = i;
+            final String labelText = labels[i];
+
+            LinearLayout row = new LinearLayout(c);
+            row.setOrientation(LinearLayout.HORIZONTAL);
+            row.setGravity(android.view.Gravity.CENTER_VERTICAL);
+            row.setPadding(dp(c, 8), 0, dp(c, 14), 0);
+            // Transparent fill so the sheet's accent warmth reads through the row rather than
+            // being covered by a second flat surface.
+            row.setBackground(ripple(Color.TRANSPARENT, accent, 15, c));
+
+            if (showIcons && icons[i] != 0) {
+                ImageView icon = new ImageView(c);
+                icon.setImageResource(icons[i]);
+                icon.setImageTintList(ColorStateList.valueOf(accent));
+                icon.setScaleType(ImageView.ScaleType.CENTER_INSIDE);
+                icon.setBackground(rounded(withAlpha(accent, 34), 11, c));
+                icon.setPadding(dp(c, 6), dp(c, 6), dp(c, 6), dp(c, 6));
+                row.addView(icon, new LinearLayout.LayoutParams(dp(c, 30), dp(c, 30)));
+            }
+
+            TextView label = text(c, labelText, 14.5f, TEXT, false);
+            label.setSingleLine(true);
+            LinearLayout.LayoutParams labelLp = new LinearLayout.LayoutParams(
+                    0, android.view.ViewGroup.LayoutParams.WRAP_CONTENT, 1);
+            if (showIcons && icons[i] != 0) labelLp.setMargins(dp(c, 11), 0, 0, 0);
+            row.addView(label, labelLp);
+
+            pressScale(row);
+            row.setOnClickListener(v -> {
+                popup.dismiss();
+                if (choice != null) choice.onChoice(index, labelText);
+            });
+
+            LinearLayout.LayoutParams rowLp = new LinearLayout.LayoutParams(
+                    android.view.ViewGroup.LayoutParams.MATCH_PARENT, dp(c, rowHeightDp));
+            if (i > 0) rowLp.topMargin = dp(c, 2);
+            box.addView(row, rowLp);
+        }
+
+        showAnchoredOrbitPopup(c, anchor, popup, width, labels.length, rowHeightDp);
+        return popup;
+    }
+
+    /**
+     * The action menu's own surface: Orbit's raised panel warmed towards the accent at the top,
+     * with a hairline accent edge. Built from the resolved accent so AMOLED, Light, Dynamic, and
+     * custom accents all produce a sheet that belongs to the current appearance.
+     */
+    private static GradientDrawable actionMenuSheet(Context c, int accent) {
+        GradientDrawable sheet = new GradientDrawable(
+                GradientDrawable.Orientation.TOP_BOTTOM,
+                new int[]{blend(accent, SURFACE_2, 0.12f), SURFACE_2});
+        sheet.setCornerRadius(dp(c, 20));
+        sheet.setStroke(dp(c, 1), withAlpha(accent, 96));
+        return sheet;
+    }
+
+    /**
+     * Orbit's themed color-choice popup. It uses the same dark menu language as
+     * showOrbitMenu, while adding a compact color swatch to make long color lists
+     * easier to scan without returning to a large grid.
+     */
+    public static void showOrbitColorMenu(Context c, View anchor, String[] labels, int[] colors,
+                                          int selectedIndex, OrbitMenuChoice choice) {
+        showOrbitColorMenu(c, anchor, null, null, labels, colors, selectedIndex, choice);
+    }
+
+    /**
+     * Color-menu variant for a screen with its own content column and a fixed footer.
+     *
+     * <p>{@code contentBounds} is the view whose on-screen width is the area the menu should look
+     * centered in - the scrolling content pane, not the physical display. A row that spans that
+     * pane is a poor horizontal reference: following its edges pushes the much narrower menu off to
+     * one side, which reads as a misplaced popup rather than a deliberate one. {@code bottomObstacle}
+     * is a pinned footer, which is on screen but is not usable popup space.
+     */
+    public static void showOrbitColorMenu(Context c, View anchor, View contentBounds,
+                                          View bottomObstacle, String[] labels, int[] colors,
+                                          int selectedIndex, OrbitMenuChoice choice) {
+        if (c == null || anchor == null || labels == null || labels.length == 0) return;
+        if (colors == null || colors.length != labels.length) {
+            showOrbitMenu(c, anchor, labels, selectedIndex, choice);
+            return;
+        }
+
+        LinearLayout box = new LinearLayout(c);
+        box.setOrientation(LinearLayout.VERTICAL);
+        box.setPadding(dp(c, 6), dp(c, 6), dp(c, 6), dp(c, 6));
+        box.setBackground(outlined(SURFACE_2, withAlpha(accent(c), 72), 18, c));
+
+        int maxChars = 0;
+        for (String label : labels) if (label != null) maxChars = Math.max(maxChars, label.length());
+        int widthDp = Math.max(210, Math.min(300, 150 + (maxChars * 7)));
+        int width = dp(c, widthDp);
+        PopupWindow popup = new PopupWindow(box, width,
+                android.view.ViewGroup.LayoutParams.WRAP_CONTENT, true);
+        popup.setOutsideTouchable(true);
+        popup.setTouchable(true);
+        popup.setClippingEnabled(true);
+        popup.setBackgroundDrawable(new ColorDrawable(Color.TRANSPARENT));
+        popup.setAnimationStyle(R.style.OrbitPopupAnimation);
+        if (Build.VERSION.SDK_INT >= 21) popup.setElevation(dp(c, 12));
+
+        for (int i = 0; i < labels.length; i++) {
+            final int index = i;
+            final String labelText = labels[i];
+            final int swatchColor = colors[i];
+            boolean selected = i == selectedIndex;
+
+            LinearLayout row = new LinearLayout(c);
+            row.setOrientation(LinearLayout.HORIZONTAL);
+            row.setGravity(android.view.Gravity.CENTER_VERTICAL);
+            row.setPadding(dp(c, 12), 0, dp(c, 10), 0);
+            row.setBackground(ripple(
+                    selected ? blend(accent(c), SURFACE_2, 0.16f) : SURFACE_2,
+                    accent(c), 13, c));
+
+            TextView swatch = text(c, "●", 18, swatchColor, true);
+            swatch.setGravity(android.view.Gravity.CENTER);
+            row.addView(swatch, new LinearLayout.LayoutParams(dp(c, 30),
+                    android.view.ViewGroup.LayoutParams.MATCH_PARENT));
+
+            TextView label = text(c, labelText, 14, TEXT, selected);
+            row.addView(label, new LinearLayout.LayoutParams(
+                    0, android.view.ViewGroup.LayoutParams.WRAP_CONTENT, 1));
+
+            TextView markerView = text(c, selected ? "✓" : "", 15, accent(c), true);
+            markerView.setGravity(android.view.Gravity.CENTER);
+            row.addView(markerView, new LinearLayout.LayoutParams(dp(c, 28),
+                    android.view.ViewGroup.LayoutParams.MATCH_PARENT));
+
+            pressScale(row);
+            row.setOnClickListener(v -> {
+                popup.dismiss();
+                if (choice != null) choice.onChoice(index, labelText);
+            });
+
+            LinearLayout.LayoutParams rowLp = new LinearLayout.LayoutParams(
+                    android.view.ViewGroup.LayoutParams.MATCH_PARENT, dp(c, 42));
+            if (i > 0) rowLp.topMargin = dp(c, 2);
+            box.addView(row, rowLp);
+        }
+
+        showAnchoredOrbitPopup(c, anchor, popup, width, labels.length, 42,
+                contentBounds, bottomObstacle, true);
+    }
+
+    private static void showAnchoredOrbitPopup(Context c, View anchor, PopupWindow popup,
+                                                int width, int rowCount, int rowHeightDp) {
+        showAnchoredOrbitPopup(c, anchor, popup, width, rowCount, rowHeightDp,
+                null, null, false);
+    }
+
+    private static void showAnchoredOrbitPopup(Context c, View anchor, PopupWindow popup,
+                                                int width, int rowCount, int rowHeightDp,
+                                                View contentBounds, View bottomObstacle,
+                                                boolean flipAboveWhenBelowDoesNotFit) {
+        try {
+            View windowRoot = anchor.getRootView();
+            if (windowRoot == null) throw new IllegalStateException("No popup root");
+
+            Rect visibleFrame = new Rect();
+            anchor.getWindowVisibleDisplayFrame(visibleFrame);
+
+            int[] anchorScreen = new int[2];
+            int[] rootScreen = new int[2];
+            anchor.getLocationOnScreen(anchorScreen);
+            windowRoot.getLocationOnScreen(rootScreen);
+
+            if (visibleFrame.width() <= 0 || visibleFrame.height() <= 0) {
+                int sw = windowRoot.getWidth() > 0
+                        ? windowRoot.getWidth() : c.getResources().getDisplayMetrics().widthPixels;
+                int sh = windowRoot.getHeight() > 0
+                        ? windowRoot.getHeight() : c.getResources().getDisplayMetrics().heightPixels;
+                visibleFrame.set(rootScreen[0], rootScreen[1], rootScreen[0] + sw,
+                        rootScreen[1] + sh);
+            }
+
+            // getWindowVisibleDisplayFrame handles classic fitted windows and a visible IME. On
+            // edge-to-edge Android windows, explicitly intersect it with system bars/cutouts so a
+            // manually positioned PopupWindow never relies on WindowManager to move it afterward.
+            if (Build.VERSION.SDK_INT >= 30) {
+                WindowInsets rootInsets = windowRoot.getRootWindowInsets();
+                if (rootInsets != null && windowRoot.getWidth() > 0 && windowRoot.getHeight() > 0) {
+                    Insets system = rootInsets.getInsets(
+                            WindowInsets.Type.systemBars() | WindowInsets.Type.displayCutout());
+                    Rect insetFrame = new Rect(
+                            rootScreen[0] + system.left,
+                            rootScreen[1] + system.top,
+                            rootScreen[0] + windowRoot.getWidth() - system.right,
+                            rootScreen[1] + windowRoot.getHeight() - system.bottom);
+                    if (!visibleFrame.intersect(insetFrame)) visibleFrame.set(insetFrame);
+                }
+            }
+
+            int margin = dp(c, 12);
+            int gap = dp(c, 6);
+            int popupHeight = dp(c, 12) + (rowCount * dp(c, rowHeightDp)) +
+                    (Math.max(0, rowCount - 1) * dp(c, 2));
+
+            Rect anchorVisible = new Rect(
+                    anchorScreen[0],
+                    anchorScreen[1],
+                    anchorScreen[0] + Math.max(1, anchor.getWidth()),
+                    anchorScreen[1] + Math.max(1, anchor.getHeight()));
+            if (!anchorVisible.intersect(visibleFrame)) {
+                anchorVisible.set(
+                        Math.max(visibleFrame.left, anchorScreen[0]),
+                        Math.max(visibleFrame.top, anchorScreen[1]),
+                        Math.min(visibleFrame.right, anchorScreen[0] + Math.max(1, anchor.getWidth())),
+                        Math.min(visibleFrame.bottom, anchorScreen[1] + Math.max(1, anchor.getHeight())));
+            }
+            if (anchorVisible.width() <= 0 || anchorVisible.height() <= 0) {
+                anchorVisible.set(anchorScreen[0], anchorScreen[1],
+                        anchorScreen[0] + Math.max(1, anchor.getWidth()),
+                        anchorScreen[1] + Math.max(1, anchor.getHeight()));
+            }
+
+            int unavailableBottom = visibleFrame.bottom;
+            if (bottomObstacle != null && bottomObstacle.isShown()) {
+                int[] obstacleScreen = new int[2];
+                bottomObstacle.getLocationOnScreen(obstacleScreen);
+                if (obstacleScreen[1] > visibleFrame.top) {
+                    unavailableBottom = Math.min(unavailableBottom, obstacleScreen[1]);
+                }
+            }
+
+            Rect contentFrame = null;
+            if (contentBounds != null && contentBounds.isShown() && contentBounds.getWidth() > 0) {
+                int[] contentScreen = new int[2];
+                contentBounds.getLocationOnScreen(contentScreen);
+                contentFrame = new Rect(contentScreen[0], contentScreen[1],
+                        contentScreen[0] + contentBounds.getWidth(),
+                        contentScreen[1] + Math.max(1, contentBounds.getHeight()));
+            }
+
+            Rect bounds = anchoredOrbitPopupBounds(visibleFrame, anchorVisible, contentFrame,
+                    width, popupHeight, margin, gap, unavailableBottom,
+                    flipAboveWhenBelowDoesNotFit);
+            popup.setWidth(bounds.width());
+            popup.setHeight(bounds.height());
+
+            int xInRoot = bounds.left - rootScreen[0];
+            int yInRoot = bounds.top - rootScreen[1];
+
+            popup.setClippingEnabled(false);
+            popup.showAtLocation(windowRoot,
+                    android.view.Gravity.TOP | android.view.Gravity.START, xInRoot, yInRoot);
+        } catch (Exception ignored) {
+            popup.setClippingEnabled(true);
+            popup.showAsDropDown(anchor, (anchor.getWidth() - width) / 2, dp(c, 6));
+        }
+    }
+
+    /**
+     * Deterministic screen-space placement shared by every Orbit PopupWindow.
+     *
+     * <p>Horizontally the popup is centered on {@code contentFrame} when a caller supplies the
+     * content pane it belongs to, and on the anchor otherwise; either way it is then clamped inside
+     * the usable frame's margins, so it can never touch or cross a screen edge. Strict callers flip
+     * above whenever the complete sheet does not fit below; existing menu callers retain their
+     * room-based preference. Width and height are capped before positioning, making the returned
+     * bounds entirely contained by the usable frame even on a narrow or unusually short window.
+     */
+    static Rect anchoredOrbitPopupBounds(Rect usableFrame, Rect anchor, Rect contentFrame,
+                                         int requestedWidth, int requestedHeight, int margin,
+                                         int gap, int unavailableBottom,
+                                         boolean flipAboveWhenBelowDoesNotFit) {
+        int safeLeft = usableFrame.left + Math.max(0, margin);
+        int safeRight = usableFrame.right - Math.max(0, margin);
+        int safeTop = usableFrame.top + Math.max(0, margin);
+        int safeBottom = usableFrame.bottom - Math.max(0, margin);
+        if (unavailableBottom > usableFrame.top) {
+            safeBottom = Math.min(safeBottom, unavailableBottom - Math.max(0, margin));
+        }
+        safeRight = Math.max(safeLeft + 1, safeRight);
+        safeBottom = Math.max(safeTop + 1, safeBottom);
+
+        int popupWidth = Math.min(Math.max(1, requestedWidth), safeRight - safeLeft);
+        int popupHeight = Math.min(Math.max(1, requestedHeight), safeBottom - safeTop);
+
+        // Center on the content pane the row lives in, clipped to what is actually usable, so a
+        // wide two-pane layout centers the menu in its own pane instead of across the whole window.
+        int centerX = anchor.centerX();
+        if (contentFrame != null) {
+            int contentLeft = Math.max(usableFrame.left, contentFrame.left);
+            int contentRight = Math.min(usableFrame.right, contentFrame.right);
+            if (contentRight > contentLeft) centerX = (contentLeft + contentRight) / 2;
+        }
+        int x = centerX - (popupWidth / 2);
+        x = Math.max(safeLeft, Math.min(safeRight - popupWidth, x));
+
+        int belowY = anchor.bottom + Math.max(0, gap);
+        int aboveY = anchor.top - popupHeight - Math.max(0, gap);
+        int roomBelow = safeBottom - belowY;
+        int roomAbove = anchor.top - Math.max(0, gap) - safeTop;
+        boolean placeBelow = roomBelow >= popupHeight
+                || (!flipAboveWhenBelowDoesNotFit && roomBelow >= roomAbove);
+        int y = placeBelow ? belowY : aboveY;
+        y = Math.max(safeTop, Math.min(safeBottom - popupHeight, y));
+        return new Rect(x, y, x + popupWidth, y + popupHeight);
+    }
+
+    // ---- text entry ------------------------------------------------------------------------------
+
+    /** How many lines a multi-line Orbit field shows before it starts to scroll inside itself. */
+    public static final int INPUT_MAX_LINES = 7;
+    /** How tall a multi-line Orbit field starts. Two lines: enough to look like a box, not a page. */
+    public static final int INPUT_MIN_LINES = 2;
+
+    /**
+     * One text field, drawn as an Orbit surface rather than as a platform underline.
+     *
+     * <p>The underline is what this exists to remove. A stock {@code EditText} draws a hairline
+     * along the <em>bottom</em> of whatever height it has been given, which is fine on one line and
+     * actively misleading on several: a field reserving room for three lines shows the user's first
+     * sentence at the top and a thin accent-coloured rule floating well below it, with nothing
+     * joining the two. Device testing of Beta 2 read that rule as a character-count indicator,
+     * which is exactly what it looks like.
+     *
+     * <p>So the whole field is the surface. A rounded outline encloses the text at every height,
+     * the border strengthens on focus so the field says where the cursor is, and the box grows a
+     * line at a time as the user types until {@link #INPUT_MAX_LINES}, after which it scrolls
+     * inside itself instead of pushing a dialog's buttons off the screen. There is deliberately no
+     * character counter: the ceilings are far beyond anything typed by hand, and a counter would
+     * turn writing one sentence into a measured exercise.
+     */
+    public static EditText input(Context c, String hint, boolean multiline) {
+        EditText field = new EditText(c);
+        field.setHint(hint);
+        field.setContentDescription(hint);
+        field.setTextColor(TEXT);
+        field.setHintTextColor(MUTED);
+        field.setTextSize(TypedValue.COMPLEX_UNIT_SP, 14);
+        // Never a tint: a tint is what colours the underline this field does not have.
+        field.setBackgroundTintList(null);
+        field.setBackground(inputSurface(c));
+        int side = dp(c, 13);
+        int vertical = dp(c, multiline ? 11 : 12);
+        field.setPadding(side, vertical, side, vertical);
+        field.setSingleLine(!multiline);
+        if (multiline) {
+            field.setMinLines(INPUT_MIN_LINES);
+            field.setMaxLines(INPUT_MAX_LINES);
+            field.setGravity(android.view.Gravity.TOP | android.view.Gravity.START);
+            field.setVerticalScrollBarEnabled(true);
+            field.setInputType(android.text.InputType.TYPE_CLASS_TEXT
+                    | android.text.InputType.TYPE_TEXT_FLAG_MULTI_LINE
+                    | android.text.InputType.TYPE_TEXT_FLAG_CAP_SENTENCES);
+        } else {
+            field.setMinHeight(dp(c, 46));
+        }
+        return field;
+    }
+
+    /** The outlined box behind an Orbit field, brighter while it has the cursor. */
+    private static Drawable inputSurface(Context c) {
+        StateListDrawable states = new StateListDrawable();
+        states.addState(new int[]{android.R.attr.state_focused},
+                outlined(SURFACE_2, accent(c), 15, c));
+        states.addState(new int[]{}, outlined(SURFACE_2, withAlpha(accent(c), 62), 15, c));
+        return states;
+    }
+
+    public static TextView text(Context c, String value, float sizeSp, int color, boolean bold) {
+        TextView t = new TextView(c);
+        t.setText(value);
+        t.setTextSize(TypedValue.COMPLEX_UNIT_SP, sizeSp);
+        t.setTextColor(color);
+        t.setFontFeatureSettings("kern");
+        applyTypography(t, bold ? Typeface.BOLD : Typeface.NORMAL);
+        return t;
+    }
+
+    /** What Orbit calls itself in the companion app when it is only being Orbit. */
+    public static final String APP_TITLE = "Orbit";
+
+    /** What it calls itself for Lelo. */
+    public static final String LELO_TITLE = "Lelo's Cutie";
+
+    /** And the one thing it wants her to read while she is here. */
+    public static final String LELO_NOTE = "You are wanted and needed. Never forget that. 💜";
+
+    /**
+     * The title the companion app draws in its header.
+     *
+     * <p>Lelo mode has been a hidden preference since v0.4.6, and this reads that same preference
+     * rather than introducing one of its own, so the title follows the existing footer gesture in
+     * Settings with nothing new to keep in sync. With it off, this is the string it has always
+     * been and the header is built exactly as before.
+     */
+    public static String appTitle(Context c) {
+        return Prefs.leloMode(c) ? LELO_TITLE : APP_TITLE;
+    }
+
+    /** The chevron a selector field uses to say it opens something. */
+    public static final String SELECTOR_CHEVRON = "▾";
+
+    /**
+     * A selectable field: a small caption above the current value, with a chevron when tapping it
+     * opens a choice.
+     *
+     * <p>Orbit's answer to a Spinner. A stock spinner drags in its own white popup, its own text
+     * colours, and its own motion, none of which belong to this design system; this reads as one
+     * of Orbit's own surfaces and hands the actual choosing to {@link #showOrbitMenu}. It is a
+     * field rather than a button on purpose, so it sits inside a confirmation as something being
+     * agreed to rather than competing with Cancel and Add for attention.
+     *
+     * <p>A non-interactive field still shows its value and drops the chevron, because "there is
+     * only one calendar" and "you have not chosen yet" should not look like the same thing.
+     */
+    public static LinearLayout selectorField(Context c, String caption, String value,
+                                             boolean interactive, View.OnClickListener onOpen) {
+        LinearLayout field = new LinearLayout(c);
+        field.setOrientation(LinearLayout.VERTICAL);
+        field.setPadding(dp(c, 12), dp(c, 8), dp(c, 12), dp(c, 9));
+        int accent = accent(c);
+        field.setBackground(interactive
+                ? rippleOutlined(SURFACE_2, withAlpha(accent, 96), accent, 14, c)
+                : outlined(SURFACE_2, withAlpha(MUTED, 70), 14, c));
+
+        TextView captionView = text(c, caption, 11, MUTED, false);
+        field.addView(captionView);
+
+        LinearLayout valueRow = new LinearLayout(c);
+        valueRow.setOrientation(LinearLayout.HORIZONTAL);
+        valueRow.setGravity(android.view.Gravity.CENTER_VERTICAL);
+        TextView valueView = text(c, value, 14, interactive ? TEXT : MUTED, true);
+        valueView.setSingleLine(true);
+        valueView.setEllipsize(android.text.TextUtils.TruncateAt.END);
+        valueRow.addView(valueView, new LinearLayout.LayoutParams(
+                0, ViewGroup.LayoutParams.WRAP_CONTENT, 1));
+        if (interactive) {
+            TextView chevron = text(c, SELECTOR_CHEVRON, 14, accent, true);
+            chevron.setPadding(dp(c, 8), 0, 0, 0);
+            valueRow.addView(chevron);
+        }
+        LinearLayout.LayoutParams rowLp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        rowLp.topMargin = dp(c, 2);
+        field.addView(valueRow, rowLp);
+
+        if (interactive && onOpen != null) {
+            pressScale(field);
+            field.setOnClickListener(onOpen);
+        } else {
+            field.setClickable(false);
+        }
+        return field;
+    }
+
+    /**
+     * A binary setting presented Orbit's way: the label, an optional supporting line, and an
+     * {@link OrbitSwitch} on the trailing edge.
+     *
+     * <p>The whole row is the target, so the label toggles the setting as readily as the switch
+     * does. The row forwards to {@link OrbitSwitch#toggle()} rather than setting state directly,
+     * which keeps one path for reporting a user change.
+     *
+     * @param description optional; pass null or empty for a label-only row.
+     */
+    public static LinearLayout switchRow(Context c, String label, String description, OrbitSwitch control) {
+        LinearLayout row = new LinearLayout(c);
+        row.setOrientation(LinearLayout.HORIZONTAL);
+        row.setGravity(android.view.Gravity.CENTER_VERTICAL);
+        row.setPadding(dp(c, 2), dp(c, 6), dp(c, 2), dp(c, 6));
+        row.setMinimumHeight(dp(c, 48));
+        row.setBackground(ripple(Color.TRANSPARENT, accent(c), 14, c));
+
+        LinearLayout labels = new LinearLayout(c);
+        labels.setOrientation(LinearLayout.VERTICAL);
+        labels.addView(text(c, label, 14, TEXT, false));
+        if (description != null && !description.trim().isEmpty()) {
+            TextView note = text(c, description, 12, MUTED, false);
+            note.setPadding(0, dp(c, 2), 0, 0);
+            labels.addView(note);
+        }
+        LinearLayout.LayoutParams labelLp = new LinearLayout.LayoutParams(
+                0, android.view.ViewGroup.LayoutParams.WRAP_CONTENT, 1);
+        labelLp.rightMargin = dp(c, 12);
+        row.addView(labels, labelLp);
+
+        row.addView(control, new LinearLayout.LayoutParams(
+                android.view.ViewGroup.LayoutParams.WRAP_CONTENT,
+                android.view.ViewGroup.LayoutParams.WRAP_CONTENT));
+
+        // The label is decoration for the control, so the row itself is not a second
+        // announced target competing with the switch.
+        labels.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
+        control.setContentDescription(label);
+        row.setOnClickListener(v -> control.toggle());
+        return row;
+    }
+
+    /** Window animation style backing the current Page transitions preference. */
+    public static int pageTransitionStyle(Context c) {
+        String choice = Prefs.pageTransition(c);
+        if (Prefs.PAGE_TRANSITION_FADE.equals(choice)) return R.style.OrbitWindowAnimation_Fade;
+        if (Prefs.PAGE_TRANSITION_NONE.equals(choice)) return R.style.OrbitWindowAnimation_None;
+        return R.style.OrbitWindowAnimation_Slide;
+    }
+
+    /**
+     * Applies the selected page transition to one Orbit page window.
+     *
+     * <p>Called from {@link #applyActivityInsets} so every full-screen Orbit page picks it up from
+     * one place and none can drift onto a different style. Invisible bridge activities do not go
+     * through that path and stay instant. Setting it per window rather than on the theme is what
+     * lets a new selection take effect on the very next navigation without restarting Orbit.
+     */
+    public static void applyPageTransition(Activity activity) {
+        if (activity == null || activity.getWindow() == null) return;
+        try { activity.getWindow().setWindowAnimations(pageTransitionStyle(activity)); }
+        catch (Exception ignored) {}
+    }
+
+    /**
+     * Hands Back to Android on a page where the system's predictive transition is the better one.
+     *
+     * <p>Orbit's page transitions declare how a window both enters and leaves. The leaving half is
+     * what silently costs a screen its predictive back: a window that has already said how it
+     * closes is closed that way, so the system never tracks it with the finger and never reveals
+     * the real page underneath. This keeps the entrance the user chose under Page transitions and
+     * says nothing at all about closing, which is what lets the platform take over.
+     *
+     * <p>Applies only when the device can actually run that transition and the user has left the
+     * enhanced treatment on. Otherwise the ordinary page transition stays, because a page with no
+     * close animation on a device that cannot animate back would simply blink away.
+     *
+     * @return true when Back was handed to the platform.
+     */
+    public static boolean applyPredictiveBackTransition(Activity activity) {
+        if (activity == null || activity.getWindow() == null) return false;
+        if (!OrbitBackHandler.predictiveTransitionAvailable()) return false;
+        if (!Prefs.swipeToGoBack(activity)) return false;
+        try {
+            activity.getWindow().setWindowAnimations(predictiveTransitionStyle(activity));
+            return true;
+        } catch (Exception ignored) {
+            return false;
+        }
+    }
+
+    /** The current page transition with its close half removed, for the path above. */
+    static int predictiveTransitionStyle(Context c) {
+        String choice = Prefs.pageTransition(c);
+        if (Prefs.PAGE_TRANSITION_FADE.equals(choice)) return R.style.OrbitWindowAnimation_PredictiveFade;
+        if (Prefs.PAGE_TRANSITION_NONE.equals(choice)) return R.style.OrbitWindowAnimation_PredictiveNone;
+        return R.style.OrbitWindowAnimation_PredictiveSlide;
+    }
+
+    /**
+     * Suppresses the page transition for one specific launch, for a handoff where another surface
+     * has already played the movement. Applies to this window only and reads no preference, so the
+     * user's Page transitions choice is neither changed nor consulted and every other navigation
+     * is unaffected. Call before the window is added, i.e. during {@code onCreate}.
+     */
+    public static void suppressPageTransition(Activity activity) {
+        if (activity == null || activity.getWindow() == null) return;
+        try { activity.getWindow().setWindowAnimations(R.style.OrbitWindowAnimation_None); }
+        catch (Exception ignored) {}
+    }
+
+    /**
+     * Subtle system-respecting haptic, honouring Orbit's Haptics preference. Use
+     * {@link HapticFeedbackConstants} so each surface stays consistent with the platform.
+     */
+    public static void haptic(View v, int feedbackConstant) {
+        if (v == null || !Prefs.haptics(v.getContext())) return;
+        try { v.performHapticFeedback(feedbackConstant); }
+        catch (Exception ignored) {}
+    }
+
+    /** True when the system is running with animations enabled (reduced-motion aware). */
+    public static boolean animationsEnabled() {
+        try { return android.animation.ValueAnimator.areAnimatorsEnabled(); }
+        catch (Exception ignored) { return true; }
+    }
+
+    // Orbit's shared motion timings. Keep new UI on these rather than inventing durations, so the
+    // whole app accelerates and settles at the same rate. Screen-to-screen navigation is the one
+    // piece the framework owns rather than this class: it mirrors MOTION_STANDARD from
+    // res/anim/orbit_activity_*.xml, wired up through Theme.Orbit's windowAnimationStyle. Orbit
+    // PopupWindow keeps its WindowManager animation. AlertDialog uses stable window geometry and
+    // animates its already-created decor view through styleOrbitDialog instead.
+    /** Immediate feedback: press states, small swaps. */
+    public static final long MOTION_FAST = 120L;
+    /** Standard transition: reordering, state changes. */
+    public static final long MOTION_STANDARD = 190L;
+    /** Content arriving on screen. */
+    public static final long MOTION_ENTER = 240L;
+
+    /** Orbit's standard easing for content that arrives and settles. */
+    public static Interpolator motionEasing() {
+        return new DecelerateInterpolator(1.6f);
+    }
+
+    // Orbit's shared corner radii. These were scattered as literals across the renderer, the
+    // bubbles, the strip and the confirmation cards, which is how the same visual component class
+    // ended up with three different corners depending on which file drew it. Different component
+    // classes are still allowed different shapes - a bubble is not a chip - but one class now has
+    // one number.
+    /**
+     * Chat bubbles, in both surfaces.
+     *
+     * <p>Still the number Orbit draws, and now also the default of the Orbit Pro bubble roundness
+     * control. Nothing should read this constant to draw a bubble any more: {@link #bubbleSurface}
+     * is how a bubble gets its background, because a literal here and a literal in Theme Studio is
+     * exactly how the overlay and full chat would end up disagreeing about their own shape.
+     */
+    public static final float RADIUS_BUBBLE = 18f;
+    /** Cards inside a response or a sheet: code blocks, confirmation cards, image cards. */
+    public static final float RADIUS_CARD = 12f;
+    /** Small inline chips and attachment cards. */
+    public static final float RADIUS_CHIP = 14f;
+
+    /**
+     * Arrival for one block of a response that is still being written.
+     *
+     * <p>Deliberately smaller and quicker than {@link #enterContent}: a streamed answer can grow
+     * several blocks in a second, and a full entrance on each one reads as the screen flinching
+     * rather than as an answer arriving. It also applies only to a block appearing for the first
+     * time — text updating inside a block that is already on screen is never animated, because
+     * fading a paragraph every time a word lands on it is the thing that makes streaming feel
+     * cheap.
+     */
+    public static void enterBlock(View v) {
+        if (v == null) return;
+        if (!animationsEnabled()) {
+            v.setAlpha(1f);
+            v.setTranslationY(0f);
+            return;
+        }
+        v.setAlpha(0f);
+        v.setTranslationY(dp(v.getContext(), 4));
+        v.animate().cancel();
+        v.animate().alpha(1f).translationY(0f)
+                .setDuration(MOTION_FAST)
+                .setInterpolator(motionEasing())
+                .start();
+    }
+
+    /**
+     * Subtle arrival for newly added content: a short fade with a small upward settle. Applies
+     * only to the view given, so existing content is never re-animated, and becomes a no-op when
+     * the system has animations turned off.
+     */
+    public static void enterContent(View v) {
+        if (v == null) return;
+        if (!animationsEnabled()) {
+            v.setAlpha(1f);
+            v.setTranslationY(0f);
+            return;
+        }
+        v.setAlpha(0f);
+        v.setTranslationY(dp(v.getContext(), 6));
+        v.animate().cancel();
+        v.animate().alpha(1f).translationY(0f)
+                .setDuration(MOTION_ENTER)
+                .setInterpolator(motionEasing())
+                .start();
+    }
+
+    /**
+     * Settles a row that has just moved to a new position in a list.
+     *
+     * <p>The caller offsets the row to where it used to be and this slides it home. Shared because
+     * it was written twice with different numbers — 190ms in one place and 210ms in another, both
+     * with their own raw interpolator and neither of them checking whether the device wants motion
+     * at all — so the same gesture settled at two different speeds depending on which list the user
+     * was reordering.
+     */
+    public static void settleReorder(View v, float fromTranslationY) {
+        if (v == null || fromTranslationY == 0f) return;
+        if (!animationsEnabled()) {
+            v.setTranslationY(0f);
+            return;
+        }
+        v.setTranslationY(fromTranslationY);
+        v.animate().cancel();
+        v.animate().translationY(0f)
+                .setDuration(MOTION_STANDARD)
+                .setInterpolator(motionEasing())
+                .start();
+    }
+
+    /** Cross-fades a status label so state changes read as a transition rather than a flicker. */
+    public static void swapText(TextView label, String text) {
+        if (label == null) return;
+        String next = text == null ? "" : text;
+        if (next.contentEquals(label.getText()) ) return;
+        if (!animationsEnabled()) {
+            label.setText(next);
+            return;
+        }
+        label.animate().cancel();
+        label.animate().alpha(0f).setDuration(MOTION_FAST / 2).withEndAction(() -> {
+            label.setText(next);
+            label.animate().alpha(1f).setDuration(MOTION_FAST / 2)
+                    .setInterpolator(motionEasing()).start();
+        }).start();
+    }
+
+    /**
+     * Small, tactile interaction used across Orbit. The view compresses on press,
+     * springs back on release, and emits a subtle system-respecting haptic tick.
+     */
+    public static void pressScale(View v) {
+        pressScale(v, 1f);
+    }
+
+    /**
+     * As {@link #pressScale(View)}, for a control that rests at less than full opacity.
+     *
+     * <p>The press dip is unchanged — it is relative to whatever the control rests at — but the
+     * release and cancel springs return to {@code restingAlpha} instead of to 1. Without this a
+     * translucent control would be left fully opaque by the first touch and stay that way.
+     */
+    public static void pressScale(View v, float restingAlpha) {
+        v.setOnTouchListener((view, event) -> {
+            switch (event.getActionMasked()) {
+                case MotionEvent.ACTION_DOWN:
+                    view.animate().cancel();
+                    view.animate()
+                            .scaleX(0.94f).scaleY(0.94f)
+                            .alpha(0.84f * restingAlpha)
+                            .translationY(dp(view.getContext(), 1))
+                            .setDuration(65)
+                            .start();
+                    break;
+                case MotionEvent.ACTION_UP:
+                    if (Prefs.haptics(view.getContext())) {
+                        try { view.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK); }
+                        catch (Exception ignored) {}
+                    }
+                    view.animate().cancel();
+                    view.animate()
+                            .scaleX(1f).scaleY(1f)
+                            .alpha(restingAlpha)
+                            .translationY(0f)
+                            .setInterpolator(new OvershootInterpolator(1.35f))
+                            .setDuration(180)
+                            .start();
+                    break;
+                case MotionEvent.ACTION_CANCEL:
+                    view.animate().cancel();
+                    view.animate()
+                            .scaleX(1f).scaleY(1f)
+                            .alpha(restingAlpha)
+                            .translationY(0f)
+                            .setDuration(110)
+                            .start();
+                    break;
+            }
+            return false;
+        });
+    }
+}

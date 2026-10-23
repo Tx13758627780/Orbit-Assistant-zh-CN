@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="local_ai_check_failed">Connection failed</string>
+    <string name="local_ai_connection_failed">Orbit Local could not be reached. Install the matching component supplied with this build, then retry. Check that Android allows it to run in the background.</string>
+    <string name="local_ai_retry_connection">Retry connection</string>
+</resources>

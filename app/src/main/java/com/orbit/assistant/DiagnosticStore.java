@@ -1,0 +1,512 @@
+package com.orbit.assistant;
+
+import android.content.Context;
+import android.content.SharedPreferences;
+
+/** Tiny private state cache used only by Orbit's hidden diagnostics screen. */
+public final class DiagnosticStore {
+    private static final String FILE = "orbit_diagnostics";
+    private DiagnosticStore() {}
+
+    public static void recordScreen(Context c, String pkg, String label, boolean hasText, boolean hasScreenshot) {
+        c.getSharedPreferences(FILE, Context.MODE_PRIVATE).edit()
+                .putString("foreground_package", safe(pkg))
+                .putString("foreground_label", safe(label))
+                .putBoolean("screen_text", hasText)
+                .putBoolean("screenshot", hasScreenshot)
+                .putLong("screen_updated", System.currentTimeMillis())
+                .apply();
+    }
+
+    public static void recordClassification(Context c, String category, int confidence,
+                                            boolean profileOverride, String reason) {
+        c.getSharedPreferences(FILE, Context.MODE_PRIVATE).edit()
+                .putString("context_category", safe(category))
+                .putInt("context_confidence", Math.max(0, Math.min(100, confidence)))
+                .putBoolean("context_profile_override", profileOverride)
+                .putString("context_reason", safe(reason))
+                .putLong("context_updated", System.currentTimeMillis())
+                .apply();
+    }
+
+    /**
+     * What the last provider request carried in the way of attachments, in counts and categories.
+     *
+     * <p>Shape only. Nothing that was attached reaches this store: no pixels, no extracted text,
+     * no filename, no local path. The kinds are Orbit's own closed set of category words, so a
+     * line built from them cannot describe what the user actually shared, only that they shared
+     * one of a handful of kinds of thing.
+     */
+    public static void recordAttachmentContext(Context c, String currentKind, int historicalTurns,
+                                               int historicalImages, String kinds, int missingAssets) {
+        c.getSharedPreferences(FILE, Context.MODE_PRIVATE).edit()
+                .putString("attachment_current_kind", safe(currentKind))
+                .putInt("attachment_history_turns", Math.max(0, historicalTurns))
+                .putInt("attachment_history_images", Math.max(0, historicalImages))
+                .putString("attachment_history_kinds", safe(kinds))
+                .putInt("attachment_history_missing", Math.max(0, missingAssets))
+                .putLong("attachment_updated", System.currentTimeMillis())
+                .apply();
+    }
+
+    /**
+     * The last full-app gesture Orbit completed, as a category word and nothing else.
+     *
+     * <p>No chat title, no conversation text, and no conversation id. Which chat was pinned or
+     * deleted is not a question Diagnostics needs to answer; whether the gesture reached its action
+     * at all is, and that is all this records.
+     */
+    public static void recordGesture(Context c, String action) {
+        c.getSharedPreferences(FILE, Context.MODE_PRIVATE).edit()
+                .putString("gesture_last_action", safe(action))
+                .putLong("gesture_updated", System.currentTimeMillis())
+                .apply();
+    }
+
+    /**
+     * The kind of Deck tile the user last ran, and whether it worked.
+     *
+     * <p>The tile <i>type</i> only, which is one of Orbit's own registered identifiers. What a
+     * Prompt tile says, which Routine a Routine tile runs and which app an App tile opens are all
+     * configuration, and none of them reach this store: "prompt" is recordable, the prompt is not.
+     */
+    public static void recordDeckAction(Context c, String tileType) {
+        c.getSharedPreferences(FILE, Context.MODE_PRIVATE).edit()
+                .putString("deck_last_action", safe(tileType))
+                .putLong("deck_updated", System.currentTimeMillis())
+                .apply();
+    }
+
+    /** The kind of tile last run from Deck, or empty when none has been. */
+    public static String lastDeckAction(Context c) {
+        return c.getSharedPreferences(FILE, Context.MODE_PRIVATE).getString("deck_last_action", "");
+    }
+
+    /**
+     * When the foreground record was written, or 0.
+     *
+     * <p>The package name itself already has a reader above. This is the half Deck needs in
+     * addition to it: a suggestion built from "which app the user was in" is only honest while that
+     * record is recent, so the timestamp is what lets stale context be refused rather than used.
+     */
+    static long lastScreenUpdatedAt(Context c) {
+        return c.getSharedPreferences(FILE, Context.MODE_PRIVATE).getLong("screen_updated", 0L);
+    }
+
+    /**
+     * Which back callback a conversation last installed, as Orbit actually installed it.
+     *
+     * <p>Recorded rather than derived, because v0.7.7.9 Beta 1 derived it and was wrong: it read
+     * the API level and the preference, concluded that the system's predictive transition was the
+     * live path, and reported that as fact while the acceptance device showed no transition at
+     * all. Diagnostics may state what Orbit configured and it may state what Orbit observed, and
+     * this is the second kind.
+     */
+    public static void recordBackCallback(Context c, String mode) {
+        c.getSharedPreferences(FILE, Context.MODE_PRIVATE).edit()
+                .putString("back_callback", safe(mode))
+                .apply();
+    }
+
+    /**
+     * How the last back gesture ended, on which kind of screen, and how much of it Orbit drew.
+     *
+     * <p>The progress count is the honest part: it is the number of {@code onBackProgressed} events
+     * Orbit was handed and turned into frames. Zero means the page did not move, whatever the
+     * configuration claims it should have done. The screen is a category name from
+     * {@link OrbitNavigation} — "Settings", "Chat", "Memory" — never a conversation, a section
+     * value, a routine, or anything typed into a form. The count, the outcome word and the category
+     * are the whole of it, and there are deliberately no coordinates anywhere in this file.
+     *
+     * @param moved false when the screen declined to move because leaving was not unconditional,
+     *              which is what an editor holding unsaved work does.
+     */
+    public static void recordBackGesture(Context c, String screen, String outcome,
+                                         int progressEvents, boolean moved) {
+        c.getSharedPreferences(FILE, Context.MODE_PRIVATE).edit()
+                .putString("back_outcome", safe(outcome))
+                .putString("back_path", moved ? "Orbit progress" : "dirty-state guarded")
+                .putString("back_screen", safe(screen))
+                .putInt("back_progress_events", Math.max(0, progressEvents))
+                .putLong("back_updated", System.currentTimeMillis())
+                .apply();
+    }
+
+    /** Whether the last gesture genuinely uncovered the previous page or only Orbit's background. */
+    public static void recordBackReveal(Context c, boolean realDestination) {
+        c.getSharedPreferences(FILE, Context.MODE_PRIVATE).edit()
+                .putBoolean("back_real_destination", realDestination)
+                .apply();
+    }
+
+    /** A back that was not a gesture at all: a screen's own Back control. */
+    public static void recordBackButton(Context c, String screen) {
+        c.getSharedPreferences(FILE, Context.MODE_PRIVATE).edit()
+                .putString("back_outcome", "committed")
+                .putString("back_path", "Back control")
+                .putString("back_screen", safe(screen))
+                .putInt("back_progress_events", 0)
+                .putLong("back_updated", System.currentTimeMillis())
+                .apply();
+    }
+
+    /**
+     * Which model a request asked for, and which one it actually went to.
+     *
+     * <p>Two fields rather than one, because they are two different facts and the interesting case
+     * is when they disagree. Orbit shipping a diagnostics line that says "Astra" merely because the
+     * user selected Astra would be the screen agreeing with the setting instead of reporting the
+     * request, which is the opposite of what a diagnostics screen is for.
+     */
+    public static void recordEffectiveModel(Context c, String requested, String effective) {
+        c.getSharedPreferences(FILE, Context.MODE_PRIVATE).edit()
+                .putString("model_requested", safe(requested))
+                .putString("model_effective", safe(effective))
+                .putLong("model_updated", System.currentTimeMillis())
+                .apply();
+    }
+
+    /** A model the account could not reach. Orbit reported it and substituted nothing. */
+    public static void recordModelUnavailable(Context c, String model) {
+        c.getSharedPreferences(FILE, Context.MODE_PRIVATE).edit()
+                .putString("model_unavailable", safe(model))
+                .putLong("model_unavailable_updated", System.currentTimeMillis())
+                .apply();
+    }
+
+    public static void recordAppBehavior(Context c, String profileSource, String privacy,
+                                         String screenPolicy, String screenshotPolicy,
+                                         String mode, String actions) {
+        c.getSharedPreferences(FILE, Context.MODE_PRIVATE).edit()
+                .putString("app_profile_source", safe(profileSource))
+                .putString("app_effective_privacy", safe(privacy))
+                .putString("app_effective_screen", safe(screenPolicy))
+                .putString("app_effective_screenshot", safe(screenshotPolicy))
+                .putString("app_effective_mode", safe(mode))
+                .putString("app_effective_actions", safe(actions))
+                .putLong("app_behavior_updated", System.currentTimeMillis())
+                .apply();
+    }
+
+    /**
+     * The last Create with Orbit planning attempt, for the hidden diagnostics screen.
+     *
+     * <p>Records only the planning exchange: which provider answered, what shape the response had,
+     * how many steps survived validation, and a bounded copy of the planner response itself. The
+     * routine description was already sent to the planner by the user's own request. Nothing else
+     * about the device is recorded here: no memories, notifications, screen context, attachments,
+     * saved-place coordinates, or extension secrets ever reach the planning path in the first
+     * place, so none of them can appear in this trace.
+     */
+    public static void recordRoutinePlan(Context c, String provider, String rawResponse,
+                                         RoutineDraft.Outcome outcome, boolean repairAttempted,
+                                         String failure) {
+        if (c == null) return;
+        String raw = safe(rawResponse).trim();
+        if (raw.length() > MAX_PLAN_TRACE) raw = raw.substring(0, MAX_PLAN_TRACE) + "… (truncated)";
+        c.getSharedPreferences(FILE, Context.MODE_PRIVATE).edit()
+                .putString("plan_provider", safe(provider))
+                .putString("plan_shape", outcome == null ? "no response" : outcome.shape)
+                .putBoolean("plan_parsed", outcome != null && outcome.planFound)
+                .putInt("plan_steps_returned", outcome == null ? 0 : outcome.stepsReturned)
+                .putInt("plan_steps_accepted", outcome == null ? 0 : outcome.stepsAccepted)
+                .putString("plan_types", outcome == null ? "" : join(outcome.returnedTypes))
+                .putString("plan_rejected", outcome == null ? "" : join(outcome.rejected))
+                .putBoolean("plan_trigger", outcome != null && outcome.draft != null
+                        && outcome.draft.hasTrigger())
+                .putBoolean("plan_repair", repairAttempted)
+                .putString("plan_failure", safe(failure))
+                .putString("plan_raw", raw)
+                .putLong("plan_updated", System.currentTimeMillis())
+                .apply();
+    }
+
+    private static final int MAX_PLAN_TRACE = 1200;
+
+    private static String join(java.util.List<String> values) {
+        if (values == null || values.isEmpty()) return "";
+        StringBuilder out = new StringBuilder();
+        for (String value : values) {
+            if (out.length() > 0) out.append(", ");
+            out.append(safe(value));
+        }
+        return out.toString();
+    }
+
+    /**
+     * How far the last Orbit Local component uninstall got, and what threw if anything did.
+     *
+     * <p>Stage names and exception class names only — no filesystem paths, no model bytes, and
+     * nothing about any conversation. This exists because v0.7.7.5's removal failed completely
+     * silently on a real device: the platform refused the request without an exception and Orbit
+     * caught nothing, so there was no trace anywhere of a button that plainly did nothing.
+     */
+    public static void recordComponentUninstall(Context c, String stage, String detail) {
+        if (c == null) return;
+        c.getSharedPreferences(FILE, Context.MODE_PRIVATE).edit()
+                .putString("local_uninstall_stage", safe(stage))
+                .putString("local_uninstall_detail", safe(detail))
+                .putLong("local_uninstall_updated", System.currentTimeMillis())
+                .apply();
+    }
+
+    public static String lastComponentUninstallStage(Context c) {
+        return prefs(c).getString("local_uninstall_stage", "");
+    }
+
+    /**
+     * Records something that went wrong, sorted into what the user can act on and what they cannot.
+     *
+     * <p>Orbit's diagnostic vocabulary already separates the two. Some conditions are failures —
+     * a request that did not complete, a component that would not install. Others are things Orbit
+     * noticed and put right on its own, and by long-standing convention those are named with a
+     * {@code _recovered} suffix. Only the first kind is a problem the user currently has, and only
+     * the first kind belongs at the top of Diagnostics.
+     *
+     * <p>Before this the two shared one slot, so a condition that had already resolved itself sat
+     * in Overview as "Last error" indefinitely and made a healthy install look broken. They are now
+     * kept apart, and both are kept: nothing is thrown away, it is only filed correctly.
+     */
+    public static void recordError(Context c, String error) {
+        if (c == null) return;
+        if (isRecoveredCondition(error)) { recordRecovered(c, error); return; }
+        c.getSharedPreferences(FILE, Context.MODE_PRIVATE).edit()
+                .putString("last_error", safe(error))
+                .putLong("error_updated", System.currentTimeMillis())
+                .apply();
+    }
+
+    /**
+     * Records a condition Orbit detected and recovered from without the user having to do anything.
+     *
+     * <p>Kept because it is genuinely useful when investigating a report, and kept out of the
+     * headline because it describes something that already ended.
+     */
+    public static void recordRecovered(Context c, String condition) {
+        if (c == null) return;
+        c.getSharedPreferences(FILE, Context.MODE_PRIVATE).edit()
+                .putString("last_recovered", safe(condition))
+                .putLong("recovered_updated", System.currentTimeMillis())
+                .apply();
+    }
+
+    /**
+     * True for a condition whose own name says it ended in recovery.
+     *
+     * <p>Deliberately a rule about the vocabulary rather than a list of known strings, so a
+     * condition added later is classified correctly without anyone remembering to come back here.
+     */
+    public static boolean isRecoveredCondition(String condition) {
+        String value = safe(condition).trim().toLowerCase(java.util.Locale.US);
+        return value.endsWith("_recovered") || value.endsWith("_recovered.");
+    }
+
+    /** The current, unresolved failure, or empty when Orbit has nothing to report. */
+    public static String currentError(Context c) {
+        return safe(prefs(c).getString("last_error", "")).trim();
+    }
+
+    /** The last self-resolved condition, or empty. Historical by definition, never a headline. */
+    public static String recoveredCondition(Context c) {
+        return safe(prefs(c).getString("last_recovered", "")).trim();
+    }
+
+    public static SharedPreferences prefs(Context c) {
+        return c.getSharedPreferences(FILE, Context.MODE_PRIVATE);
+    }
+
+    public static String lastForegroundPackage(Context c) {
+        return prefs(c).getString("foreground_package", "");
+    }
+
+    public static String lastForegroundAppLabel(Context c) {
+        return prefs(c).getString("foreground_label", "");
+    }
+
+    /**
+     * Which deterministic route last answered a request, as a category word.
+     *
+     * <p>Category only. Not the message, not the expression, not the units, not the value: knowing
+     * that the calculator answered the last request is useful for a Beta report, and knowing what
+     * was calculated is nobody's business but the user's.
+     */
+    public static void recordUtilityRoute(Context c, String route) {
+        prefs(c).edit()
+                .putString("utility_route", safe(route))
+                .putLong("utility_updated", System.currentTimeMillis())
+                .apply();
+    }
+
+    public static String lastUtilityRoute(Context c) {
+        return prefs(c).getString("utility_route", "");
+    }
+
+    /**
+     * What the Orbit Local action path did with the last request it looked at.
+     *
+     * <p>Four fields, all of them Orbit's own closed vocabulary: which route won, which category of
+     * action was produced, whether validation accepted or refused it, and how long the attempt
+     * took. Nothing the user typed, nothing the model wrote, no app name, no label, and no
+     * parameter value reaches this store.
+     */
+    public static void recordLocalAction(Context c, String route, String category,
+                                         String validation, long millis) {
+        prefs(c).edit()
+                .putString("local_action_route", safe(route))
+                .putString("local_action_category", safe(category))
+                .putString("local_action_validation", safe(validation))
+                .putLong("local_action_ms", Math.max(0L, millis))
+                .putLong("local_action_updated", System.currentTimeMillis())
+                .apply();
+    }
+
+    /**
+     * The last Orbit Local chat request, as structure rather than content.
+     *
+     * <p>A path token from {@link LocalContextBudget} ("chat", "ask-vault", "notifications",
+     * "attachments", "screen", "image-only"), a summary made only of counts, the estimated prompt
+     * size against its budget, whether evidence was reduced to excerpts, timings, and an outcome
+     * token. The prompt, the answer, memories, notification text, saved items, screen text and
+     * attachment text never reach this store: nothing that could hold them is a parameter.
+     */
+    public static void recordLocalRequest(Context c, String path, String sourcesSummary,
+                                          int estimatedTokens, int budgetTokens, boolean trimmed,
+                                          long firstTokenMs, long totalMs, String outcome) {
+        if (c == null) return;
+        prefs(c).edit()
+                .putString("local_request_path", safe(path))
+                .putString("local_request_sources", safe(sourcesSummary))
+                .putInt("local_request_tokens", Math.max(0, estimatedTokens))
+                .putInt("local_request_budget", Math.max(0, budgetTokens))
+                .putBoolean("local_request_trimmed", trimmed)
+                .putLong("local_request_first_ms", firstTokenMs)
+                .putLong("local_request_total_ms", Math.max(0L, totalMs))
+                .putString("local_request_outcome", safe(outcome))
+                .putLong("local_request_updated", System.currentTimeMillis())
+                .apply();
+    }
+
+    /**
+     * Where a reply draft was last sent, as a destination category.
+     *
+     * <p>One closed word from {@link ReplySurface#diagnosticsName}: "sms", "email-copy",
+     * "app-copy", "copy". Never a recipient, an address, a phone number, an app package, or a single
+     * character of the draft — which is the whole reason it is a category rather than a description.
+     */
+    public static void recordReplyDestination(Context c, String destination) {
+        prefs(c).edit()
+                .putString("reply_destination", safe(destination))
+                .putLong("reply_destination_updated", System.currentTimeMillis())
+                .apply();
+    }
+
+    public static String lastReplyDestination(Context c) {
+        return prefs(c).getString("reply_destination", "");
+    }
+
+    /**
+     * The shape of the last batch of attachments the user staged.
+     *
+     * <p>Counts and one source word from Orbit's own closed set: "picker", "share", "camera",
+     * "clipboard", "screen". Never a filename, never a URI, never a MIME type read off an external
+     * Intent, and nothing decoded out of the files themselves - the useful Beta question is "did
+     * eight selected photos become eight attachments", and answering it needs no idea what was in
+     * any of them.
+     */
+    public static void recordAttachmentBatch(Context c, String source, int selected,
+                                             int accepted, int rejected) {
+        prefs(c).edit()
+                .putString("attachment_batch_source", safe(source))
+                .putInt("attachment_batch_selected", Math.max(0, selected))
+                .putInt("attachment_batch_accepted", Math.max(0, accepted))
+                .putInt("attachment_batch_rejected", Math.max(0, rejected))
+                .putLong("attachment_batch_updated", System.currentTimeMillis())
+                .apply();
+    }
+
+    /**
+     * What the last Share to Orbit carried, as a shape word.
+     *
+     * <p>One of "text", "image", "images", "file", "files", "mixed", "none". Not the shared text,
+     * not the URL, not the filename, not the sending app - which is the entire point of recording
+     * a shape rather than a description.
+     */
+    public static void recordShareToOrbit(Context c, String shape, String outcome, int accepted) {
+        prefs(c).edit()
+                .putString("share_shape", safe(shape))
+                .putString("share_outcome", safe(outcome))
+                .putInt("share_accepted", Math.max(0, accepted))
+                .putLong("share_updated", System.currentTimeMillis())
+                .apply();
+    }
+
+    /**
+     * That the full-screen attachment viewer was opened, and over what.
+     *
+     * <p>Counts and one source word. Not the image, not a thumbnail, not a filename and not a
+     * stored path: "did tapping the third photo open the third photo" is answerable from a count
+     * and an index, and nothing here could describe what was in any of them.
+     *
+     * @param source "composer" for an unsent message, "history" for a turn already sent.
+     */
+    public static void recordAttachmentViewer(Context c, String source, int count, int index) {
+        prefs(c).edit()
+                .putString("viewer_source", safe(source))
+                .putInt("viewer_count", Math.max(0, count))
+                .putInt("viewer_index", Math.max(0, index))
+                .putBoolean("viewer_missing", false)
+                .putLong("viewer_updated", System.currentTimeMillis())
+                .apply();
+    }
+
+    /** That the viewer met a recorded image whose file is no longer there. A yes, and no more. */
+    public static void recordAttachmentViewerMissing(Context c) {
+        prefs(c).edit().putBoolean("viewer_missing", true).apply();
+    }
+
+    /**
+     * What the last external text entry carried, in a length and an outcome.
+     *
+     * <p>Never the text. A selection is by definition something the user was reading in another
+     * app - a message, a medical result, a password field they mis-selected - and none of it is
+     * Orbit's to keep in a report they might paste anywhere. How long it was and whether Orbit
+     * accepted it is what a Beta report actually needs.
+     *
+     * @param source  "process_text" for Android's selection menu.
+     * @param length  characters accepted, or 0 for a rejection.
+     * @param outcome "staged", "staged-readonly" or "rejected".
+     */
+    public static void recordExternalText(Context c, String source, int length, String outcome) {
+        prefs(c).edit()
+                .putString("external_text_source", safe(source))
+                .putString("external_text_outcome", safe(outcome))
+                .putInt("external_text_length", Math.max(0, length))
+                .putLong("external_text_updated", System.currentTimeMillis())
+                .apply();
+    }
+
+    /**
+     * That a protected emergency or crisis number was intercepted, and what the user chose.
+     *
+     * <p>Deliberately no number. That Orbit stopped a dial and that the user then confirmed or
+     * cancelled is what a Beta report needs; which emergency number a person was looking at on a
+     * particular evening is not Orbit's to keep, and a category is enough to prove the gate ran.
+     *
+     * @param category "emergency" or "crisis".
+     * @param outcome  "shown", "confirmed" or "cancelled".
+     */
+    public static void recordProtectedDial(Context c, String category, String outcome) {
+        prefs(c).edit()
+                .putString("protected_dial_category", safe(category))
+                .putString("protected_dial_outcome", safe(outcome))
+                .putBoolean("protected_dial_shown", true)
+                .putLong("protected_dial_updated", System.currentTimeMillis())
+                .apply();
+    }
+
+    public static String lastProtectedDialOutcome(Context c) {
+        return prefs(c).getString("protected_dial_outcome", "");
+    }
+
+    private static String safe(String s) { return s == null ? "" : s; }
+}

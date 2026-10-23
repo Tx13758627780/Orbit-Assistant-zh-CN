@@ -1,0 +1,79 @@
+{
+  "base_commit": "32655b8cd9dc6149b4264b476c8db0d6aab9cff2",
+  "resource_pairs": 2619,
+  "english_fallbacks_checked": 3541,
+  "focused_regression": {
+    "suites": 16,
+    "tests": 523,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0
+  },
+  "full_regression_before_test_order_fix": {
+    "suites": 266,
+    "tests": 9975,
+    "failures": 5,
+    "errors": 0,
+    "skipped": 42,
+    "failed_cases": [
+      {
+        "class": "com.orbit.assistant.OrbitVaultStoreTest",
+        "method": "theCollectionIsBoundedWithoutEverDeletingAnything",
+        "message": "org.junit.ComparisonFailure: the oldest item is still there expected:<note [0]> but was:<note [1]>"
+      },
+      {
+        "class": "com.orbit.assistant.OpenRouterConnectTest",
+        "method": "theCatalogKeepsChatModelsAndOnlyStructuredCapabilities[29]",
+        "message": "org.junit.ComparisonFailure: expected:<[deprecated]> but was:<[unavailable]>"
+      },
+      {
+        "class": "com.orbit.assistant.OpenRouterConnectTest",
+        "method": "theCatalogKeepsChatModelsAndOnlyStructuredCapabilities",
+        "message": "org.junit.ComparisonFailure: expected:<[deprecated]> but was:<[unavailable]>"
+      },
+      {
+        "class": "com.orbit.assistant.ComponentInstallHandoffTest",
+        "method": "aVerifiedComponentPassesEveryCheckOrbitControls[29]",
+        "message": "org.junit.ComparisonFailure: a correctly placed component must never be refused by Orbit's own checks; it may only fail at the platform handoff expected:<[Orbit could not share the component with Android's installer].> but was:<[This device has no package installer available].>"
+      },
+      {
+        "class": "com.orbit.assistant.ComponentInstallHandoffTest",
+        "method": "aVerifiedComponentPassesEveryCheckOrbitControls",
+        "message": "org.junit.ComparisonFailure: a correctly placed component must never be refused by Orbit's own checks; it may only fail at the platform handoff expected:<[Orbit could not share the component with Android's installer].> but was:<[This device has no package installer available].>"
+      }
+    ]
+  },
+  "verified_unmodified_baseline": {
+    "commit": "32655b8cd9dc6149b4264b476c8db0d6aab9cff2",
+    "tests": 84,
+    "failures": [
+      {
+        "class": "com.orbit.assistant.OpenRouterConnectTest",
+        "method": "theCatalogKeepsChatModelsAndOnlyStructuredCapabilities[29]",
+        "message": "org.junit.ComparisonFailure: expected:<[deprecated]> but was:<[unavailable]>"
+      },
+      {
+        "class": "com.orbit.assistant.OpenRouterConnectTest",
+        "method": "theCatalogKeepsChatModelsAndOnlyStructuredCapabilities",
+        "message": "org.junit.ComparisonFailure: expected:<[deprecated]> but was:<[unavailable]>"
+      },
+      {
+        "class": "com.orbit.assistant.ComponentInstallHandoffTest",
+        "method": "aVerifiedComponentPassesEveryCheckOrbitControls[29]",
+        "message": "org.junit.ComparisonFailure: a correctly placed component must never be refused by Orbit's own checks; it may only fail at the platform handoff expected:<[Orbit could not share the component with Android's installer].> but was:<[This device has no package installer available].>"
+      },
+      {
+        "class": "com.orbit.assistant.ComponentInstallHandoffTest",
+        "method": "aVerifiedComponentPassesEveryCheckOrbitControls",
+        "message": "org.junit.ComparisonFailure: a correctly placed component must never be refused by Orbit's own checks; it may only fail at the platform handoff expected:<[Orbit could not share the component with Android's installer].> but was:<[This device has no package installer available].>"
+      }
+    ]
+  },
+  "final_regression_after_test_order_fix": {
+    "suites": 2,
+    "tests": 76,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0
+  }
+}

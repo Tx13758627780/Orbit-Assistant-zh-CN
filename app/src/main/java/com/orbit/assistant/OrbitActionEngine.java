@@ -1,0 +1,179 @@
+package com.orbit.assistant;
+
+import android.content.Context;
+
+import java.util.List;
+
+/**
+ * Foundation for 0.6 chained actions.
+ *
+ * Orbit already produced arrays of actions, but each surface executed them in an ad hoc way.
+ * This engine centralizes ordering, confirmation, per-step results, and stop/continue behavior
+ * so future routines, widgets, and Quick Settings tiles can share the same execution path.
+ */
+public final class OrbitActionEngine {
+    public interface ConfirmationHandler {
+        void request(AssistantReply.Action action, Runnable onAllow, Runnable onCancel);
+    }
+
+    public interface Listener {
+        void onStep(AssistantReply.Action action, DeviceActionExecutor.Result result, int index, int total);
+        void onFinished(boolean completedAllSteps, int completedSteps, int totalSteps);
+    }
+
+    private OrbitActionEngine() {}
+
+    public static void execute(Context context, List<AssistantReply.Action> actions,
+                               ConfirmationHandler confirmationHandler, Listener listener) {
+        if (actions == null || actions.isEmpty()) {
+            if (listener != null) listener.onFinished(true, 0, 0);
+            return;
+        }
+        // One run is one batch of recent changes, so a follow-up after a multi-action reply knows
+        // that several things just changed and asks which one, rather than undoing whichever step
+        // happened to run last.
+        RecentActionContext.beginBatch();
+        Listener batched = new Listener() {
+            @Override public void onStep(AssistantReply.Action action, DeviceActionExecutor.Result result,
+                                         int index, int total) {
+                if (listener != null) listener.onStep(action, result, index, total);
+            }
+
+            @Override public void onFinished(boolean completedAllSteps, int completedSteps, int totalSteps) {
+                RecentActionContext.endBatch();
+                if (listener != null) listener.onFinished(completedAllSteps, completedSteps, totalSteps);
+            }
+        };
+        // Branch geometry is a fixed property of the saved chain, so it is resolved once here and
+        // then only read. Nothing about how a condition evaluates can move a branch boundary.
+        runStep(context, actions, RoutineBranch.flow(actions), 0, confirmationHandler, batched);
+    }
+
+    private static void runStep(Context context, List<AssistantReply.Action> actions,
+                                RoutineBranch.Flow flow, int index,
+                                ConfirmationHandler confirmationHandler, Listener listener) {
+        if (actions == null) {
+            if (listener != null) listener.onFinished(true, 0, 0);
+            return;
+        }
+        if (index >= actions.size()) {
+            if (listener != null) listener.onFinished(true, actions.size(), actions.size());
+            return;
+        }
+
+        AssistantReply.Action action = actions.get(index);
+        if (action == null) {
+            DeviceActionExecutor.Result skipped = DeviceActionExecutor.Result.failed("Empty action step").withContinuation(true);
+            if (listener != null) listener.onStep(null, skipped, index, actions.size());
+            advance(context, actions, flow, index, confirmationHandler, listener);
+            return;
+        }
+
+        Runnable executeNow = () -> {
+            if (RoutineConditionEvaluator.isCondition(action)) {
+                RoutineConditionEvaluator.Result condition = RoutineConditionEvaluator.evaluate(context, action);
+                if (!condition.evaluable) {
+                    DeviceActionExecutor.Result failed = condition.permissionRequired
+                            ? DeviceActionExecutor.Result.permission(condition.message)
+                            : DeviceActionExecutor.Result.unavailable(condition.message);
+                    if (listener != null) listener.onStep(action, failed, index, actions.size());
+                    if (listener != null) listener.onFinished(false, index + 1, actions.size());
+                    return;
+                }
+                RoutineBranch.Span span = RoutineBranch.spanAt(actions, index);
+                boolean hasElse = span != null && span.hasElsePath();
+
+                if (condition.matched) {
+                    DeviceActionExecutor.Result met = DeviceActionExecutor.Result.success(
+                            hasElse ? "Condition matched · running the IF path" : "Condition matched");
+                    if (listener != null) listener.onStep(action, met, index, actions.size());
+                    if (span != null && !span.hasTruePath() && hasElse) {
+                        // Nothing on the IF path to run, so the ELSE path is stepped over here
+                        // rather than being reached by falling through into it.
+                        reportSkipped(listener, actions, span.elseStart, span.elseEnd,
+                                "Skipped · IF path ran instead");
+                        runStep(context, actions, flow, span.elseEnd, confirmationHandler, listener);
+                        return;
+                    }
+                    runStep(context, actions, flow, index + 1, confirmationHandler, listener);
+                    return;
+                }
+
+                int gated = RoutineBranch.trueSteps(action);
+                DeviceActionExecutor.Result notMet = DeviceActionExecutor.Result.success(hasElse
+                        ? condition.message + " · running the ELSE path"
+                        : condition.message + " · skipped "
+                                + Math.min(gated, Math.max(0, actions.size() - index - 1))
+                                + (gated == 1 ? " step" : " steps"));
+                if (listener != null) listener.onStep(action, notMet, index, actions.size());
+                int skipEnd = span == null ? Math.min(actions.size(), index + 1 + gated) : span.trueEnd;
+                reportSkipped(listener, actions, index + 1, skipEnd,
+                        hasElse ? "Skipped · ELSE path ran instead" : "Skipped · condition not met");
+                runStep(context, actions, flow, skipEnd, confirmationHandler, listener);
+                return;
+            }
+
+            if (RoutineActionCatalog.EXTENSION_ACTION.equals(action.type)) {
+                OrbitExtensionActionExecutor.execute(context, action,
+                        result -> handleResult(context, actions, flow, index, confirmationHandler,
+                                listener, action, result));
+                return;
+            }
+            handleResult(context, actions, flow, index, confirmationHandler, listener, action,
+                    DeviceActionExecutor.executeDetailed(context, action));
+        };
+
+        if (action.requiresConfirmation && confirmationHandler != null) {
+            confirmationHandler.request(action, executeNow, () -> {
+                DeviceActionExecutor.Result cancelled = DeviceActionExecutor.Result.cancelled("Cancelled");
+                if (listener != null) listener.onStep(action, cancelled, index, actions.size());
+                advance(context, actions, flow, index, confirmationHandler, listener);
+            });
+        } else {
+            executeNow.run();
+        }
+    }
+
+    /**
+     * Moves past the step at {@code index}.
+     *
+     * <p>Every ordinary continuation goes through here, including a cancelled confirmation and an
+     * empty step, so finishing the last step of an IF path always steps over the ELSE path no
+     * matter which way that step ended.
+     */
+    private static void advance(Context context, List<AssistantReply.Action> actions,
+                                RoutineBranch.Flow flow, int index,
+                                ConfirmationHandler confirmationHandler, Listener listener) {
+        int next = flow == null ? index + 1 : flow.nextAfter(index);
+        if (flow != null) {
+            reportSkipped(listener, actions, flow.skipFromAfter(index), flow.skipToAfter(index),
+                    "Skipped · IF path ran instead");
+        }
+        runStep(context, actions, flow, next, confirmationHandler, listener);
+    }
+
+    /** Reports a range of steps the run stepped over, so nothing skipped can look like it ran. */
+    private static void reportSkipped(Listener listener, List<AssistantReply.Action> actions,
+                                      int from, int to, String message) {
+        if (listener == null || actions == null) return;
+        for (int i = Math.max(0, from); i < Math.min(actions.size(), to); i++) {
+            listener.onStep(actions.get(i), DeviceActionExecutor.Result.success(message),
+                    i, actions.size());
+        }
+    }
+
+    private static void handleResult(Context context, List<AssistantReply.Action> actions,
+                                     RoutineBranch.Flow flow, int index,
+                                     ConfirmationHandler confirmationHandler,
+                                     Listener listener, AssistantReply.Action action,
+                                     DeviceActionExecutor.Result result) {
+        DeviceActionExecutor.Result safeResult = result == null
+                ? DeviceActionExecutor.Result.failed("Action did not finish") : result;
+        if (listener != null) listener.onStep(action, safeResult, index, actions.size());
+        if (safeResult.shouldContinue) {
+            advance(context, actions, flow, index, confirmationHandler, listener);
+        } else if (listener != null) {
+            listener.onFinished(false, index + 1, actions.size());
+        }
+    }
+}

@@ -1,0 +1,699 @@
+package com.orbit.assistant;
+
+import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertNotEquals;
+import static org.junit.Assert.assertNotNull;
+import static org.junit.Assert.assertNull;
+import static org.junit.Assert.assertTrue;
+
+import android.app.Activity;
+import android.content.Context;
+import android.graphics.Color;
+import android.view.View;
+import android.view.ViewGroup;
+import android.widget.ImageView;
+import android.widget.TextView;
+
+import org.junit.Before;
+import org.junit.Test;
+import org.junit.runner.RunWith;
+import org.robolectric.Robolectric;
+import org.robolectric.RobolectricTestRunner;
+import org.robolectric.RuntimeEnvironment;
+import org.robolectric.android.controller.ActivityController;
+import org.robolectric.annotation.Config;
+
+import java.util.ArrayList;
+import java.util.List;
+
+/**
+ * The editing model: what changes a draft, what changes the app, and what asks first.
+ *
+ * <p>Everything here follows from one rule. Editing changes a draft; only Apply changes Orbit. A
+ * screen that got this wrong would write a preference on every drag of a colour picker, which is
+ * both a performance problem and — worse — a screen you cannot back out of.
+ */
+@RunWith(RobolectricTestRunner.class)
+@Config(sdk = {29, 31, 35})
+public final class ThemeStudioDraftTest {
+
+    private Context context;
+
+    @Before public void setUp() {
+        context = RuntimeEnvironment.getApplication();
+        Prefs.get(context).edit().clear().commit();
+        OrbitThemeStore.clearForTests(context);
+        UiPresence.clearForTests();
+        OrbitThemeStore.applyActive(context, OrbitTheme.orbitDefault());
+    }
+
+    private ActivityController<ThemeStudioActivity> open() {
+        return Robolectric.buildActivity(ThemeStudioActivity.class).setup();
+    }
+
+    // ---- opening -------------------------------------------------------------------------------
+
+    @Test public void openingTheStudioStartsFromTheAppliedTheme() {
+        OrbitThemeStore.applyActive(context, OrbitTheme.builtIn(OrbitTheme.ID_NEBULA));
+        ActivityController<ThemeStudioActivity> controller = open();
+        ThemeStudioActivity activity = controller.get();
+
+        assertFalse("a freshly opened editor has nothing to lose", activity.isDirty());
+        assertTrue(texts(activity).contains("Theme Studio"));
+        assertTrue(texts(activity).contains("Make Orbit yours."));
+        controller.pause().stop().destroy();
+    }
+
+    @Test public void theStudioLaunchesOnADefaultInstall() {
+        ActivityController<ThemeStudioActivity> controller = open();
+        assertNotNull(controller.get().getWindow().getDecorView());
+        assertFalse(controller.get().isFinishing());
+        controller.pause().stop().destroy();
+    }
+
+    /** Every Orbit preset must be offered by name, or the gallery is not a gallery. */
+    @Test public void theGalleryOffersOrbitsPresets() {
+        ActivityController<ThemeStudioActivity> controller = open();
+        List<String> shown = texts(controller.get());
+        for (OrbitTheme preset : OrbitTheme.builtIns()) {
+            assertTrue(preset.name + " is missing from the gallery", shown.contains(preset.name));
+        }
+        controller.pause().stop().destroy();
+    }
+
+    @Test public void everyColourOrbitLetsYouEditIsOnTheScreen() {
+        ActivityController<ThemeStudioActivity> controller = open();
+        List<String> shown = texts(controller.get());
+        assertTrue(shown.contains("Accent"));
+        assertTrue(shown.contains("Your messages"));
+        assertTrue(shown.contains("Orbit's replies"));
+        assertTrue(shown.contains("Cards"));
+        assertTrue(shown.contains("Background"));
+        assertTrue(shown.contains("True black AMOLED background"));
+        controller.pause().stop().destroy();
+    }
+
+    // ---- draft versus applied --------------------------------------------------------------------
+
+    /**
+     * The load-bearing assertion of the whole feature: the preview moves and the app does not.
+     */
+    @Test public void editingTheDraftDoesNotChangeTheAppliedTheme() {
+        ActivityController<ThemeStudioActivity> controller = open();
+        ThemeStudioActivity activity = controller.get();
+        int surfaceBefore = UiKit.SURFACE;
+        String accentBefore = Prefs.get(context).getString(Prefs.ACCENT, "");
+
+        select(activity, OrbitTheme.builtIn(OrbitTheme.ID_EMBER));
+
+        assertTrue("the editor now has something to lose", activity.isDirty());
+        assertEquals("nothing may be written until Apply",
+                accentBefore, Prefs.get(context).getString(Prefs.ACCENT, ""));
+        assertEquals("and the live canvas must not move", surfaceBefore, UiKit.SURFACE);
+        assertTrue(OrbitThemeStore.active(context).sameColours(OrbitTheme.orbitDefault()));
+        controller.pause().stop().destroy();
+    }
+
+    @Test public void thePreviewReflectsTheDraftRatherThanTheAppliedTheme() {
+        ActivityController<ThemeStudioActivity> controller = open();
+        ThemeStudioActivity activity = controller.get();
+
+        select(activity, OrbitTheme.builtIn(OrbitTheme.ID_MOSS));
+
+        ThemePreviewView view = findPreview(activity.getWindow().getDecorView());
+        assertNotNull("the studio must draw a preview", view);
+        assertEquals("the preview must show the draft's page colour",
+                OrbitTheme.hexTokenColor("#08110E"), previewBackground(view));
+        assertEquals("while Orbit itself is unchanged", UiKit.classicBackground(), UiKit.BG);
+        controller.pause().stop().destroy();
+    }
+
+    @Test public void applyCommitsTheDraft() {
+        ActivityController<ThemeStudioActivity> controller = open();
+        ThemeStudioActivity activity = controller.get();
+        select(activity, OrbitTheme.builtIn(OrbitTheme.ID_TIDE));
+
+        apply(activity);
+
+        assertFalse("after applying there is nothing left to lose", activity.isDirty());
+        OrbitTheme active = OrbitThemeStore.active(context);
+        assertTrue(active.sameColours(OrbitTheme.builtIn(OrbitTheme.ID_TIDE)));
+        assertEquals("Tide", active.name);
+        assertEquals("and the live canvas has moved",
+                OrbitTheme.hexTokenColor("#141C28"), UiKit.SURFACE);
+        controller.pause().stop().destroy();
+    }
+
+    @Test public void leavingWithoutApplyingCommitsNothing() {
+        ActivityController<ThemeStudioActivity> controller = open();
+        ThemeStudioActivity activity = controller.get();
+        select(activity, OrbitTheme.builtIn(OrbitTheme.ID_EMBER));
+
+        controller.pause().stop().destroy();
+
+        assertTrue("the applied theme must be untouched",
+                OrbitThemeStore.active(context).sameColours(OrbitTheme.orbitDefault()));
+        assertEquals(UiKit.classicSurface(), UiKit.SURFACE);
+    }
+
+    @Test public void revertReturnsTheDraftToWhatIsApplied() {
+        ActivityController<ThemeStudioActivity> controller = open();
+        ThemeStudioActivity activity = controller.get();
+        select(activity, OrbitTheme.builtIn(OrbitTheme.ID_NEBULA));
+        assertTrue(activity.isDirty());
+
+        invoke(activity, "revertDraft");
+
+        assertFalse(activity.isDirty());
+        assertTrue(OrbitThemeStore.active(context).sameColours(OrbitTheme.orbitDefault()));
+        controller.pause().stop().destroy();
+    }
+
+    // ---- dirty state ------------------------------------------------------------------------------
+
+    @Test public void theEditorIsCleanUntilSomethingActuallyChanges() {
+        ActivityController<ThemeStudioActivity> controller = open();
+        ThemeStudioActivity activity = controller.get();
+        assertFalse(activity.isDirty());
+
+        // Selecting the theme that is already applied is not an edit.
+        select(activity, OrbitTheme.orbitDefault());
+        assertFalse(activity.isDirty());
+
+        select(activity, OrbitTheme.builtIn(OrbitTheme.ID_BLURPLE));
+        assertTrue(activity.isDirty());
+
+        select(activity, OrbitTheme.orbitDefault());
+        assertFalse("returning to the applied colours is not a change", activity.isDirty());
+        controller.pause().stop().destroy();
+    }
+
+    /** A dirty editor must refuse the page-moving gesture so the confirmation is reached instead. */
+    @Test public void aDirtyEditorStandsAsideFromThePageGesture() {
+        assertEquals(OrbitNavigation.Policy.GUARDED,
+                OrbitNavigation.policyFor(ThemeStudioActivity.class));
+        assertEquals("Theme Studio", OrbitNavigation.labelFor(ThemeStudioActivity.class));
+        assertTrue(OrbitNavigation.usesPredictive(ThemeStudioActivity.class));
+    }
+
+    // ---- presets -----------------------------------------------------------------------------------
+
+    @Test public void selectingAPresetLoadsItWithoutApplyingIt() {
+        ActivityController<ThemeStudioActivity> controller = open();
+        ThemeStudioActivity activity = controller.get();
+
+        // The free presets, which is every preset this behaviour has ever applied to. An Orbit Pro
+        // preset is deliberately refused before it reaches the draft on a device without Pro, and
+        // that refusal has its own test in ThemeStudioProTest rather than being folded in here.
+        for (OrbitTheme preset : OrbitTheme.freeBuiltIns()) {
+            select(activity, preset);
+            assertEquals("the draft must be the preset that was selected",
+                    preset.id, draft(activity).id);
+            assertTrue("and the app must be untouched",
+                    OrbitThemeStore.active(context).sameColours(OrbitTheme.orbitDefault()));
+        }
+        controller.pause().stop().destroy();
+    }
+
+    /**
+     * Editing a colour while a preset is selected produces a theme of the user's own. The shipped
+     * preset is immutable and still exists; the gallery must stop claiming it is what is selected.
+     */
+    @Test public void editingAPresetRebadgesTheDraftAsTheirOwn() {
+        ActivityController<ThemeStudioActivity> controller = open();
+        ThemeStudioActivity activity = controller.get();
+
+        select(activity, OrbitTheme.builtIn(OrbitTheme.ID_NEBULA));
+        edit(activity, draft(activity).withAccent("#FF8A5B"));
+
+        assertFalse(draft(activity).builtIn);
+        assertFalse(OrbitTheme.isBuiltInId(draft(activity).id));
+        assertTrue("Nebula itself must be unchanged",
+                OrbitTheme.builtIn(OrbitTheme.ID_NEBULA).accent.equals("violet"));
+        controller.pause().stop().destroy();
+    }
+
+    /** Editing back onto a preset's exact colours re-binds to it, so the selection tells the truth. */
+    @Test public void landingBackOnAPresetReselectsIt() {
+        ActivityController<ThemeStudioActivity> controller = open();
+        ThemeStudioActivity activity = controller.get();
+
+        select(activity, OrbitTheme.builtIn(OrbitTheme.ID_NEBULA));
+        edit(activity, draft(activity).withAccent("#FF8A5B"));
+        assertFalse(OrbitTheme.isBuiltInId(draft(activity).id));
+
+        edit(activity, draft(activity).withAccent("#8B7CFF"));
+        assertEquals(OrbitTheme.ID_NEBULA, draft(activity).id);
+        controller.pause().stop().destroy();
+    }
+
+    /**
+     * Selecting an AMOLED preset has to move the AMOLED switch.
+     *
+     * <p>Otherwise the screen contradicts itself: a true-black preview sitting above a control that
+     * says true black is off, and the next thing the user touches decides which one was lying.
+     */
+    @Test public void selectingAnAmoledPresetMovesTheAmoledSwitch() {
+        ActivityController<ThemeStudioActivity> controller = open();
+        ThemeStudioActivity activity = controller.get();
+        OrbitSwitch amoled = (OrbitSwitch) field(activity, "amoledSwitch");
+        assertNotNull(amoled);
+        assertFalse(amoled.isChecked());
+
+        select(activity, OrbitTheme.builtIn(OrbitTheme.ID_AMOLED));
+        assertTrue("the switch must follow the preset", amoled.isChecked());
+        assertTrue(draft(activity).amoled);
+
+        select(activity, OrbitTheme.orbitDefault());
+        assertFalse("and follow it back", amoled.isChecked());
+        controller.pause().stop().destroy();
+    }
+
+    @Test public void savingAPresetStoresItWithoutApplyingIt() {
+        ActivityController<ThemeStudioActivity> controller = open();
+        ThemeStudioActivity activity = controller.get();
+        select(activity, OrbitTheme.builtIn(OrbitTheme.ID_EMBER));
+
+        OrbitTheme saved = OrbitThemeStore.savePreset(context,
+                draft(activity).asCustomNamed("My Ember"));
+
+        assertNotNull(saved);
+        assertEquals(1, OrbitThemeStore.customPresetCount(context));
+        assertTrue("saving must not change what Orbit is drawing",
+                OrbitThemeStore.active(context).sameColours(OrbitTheme.orbitDefault()));
+        controller.pause().stop().destroy();
+    }
+
+    @Test public void aSavedPresetAppearsInTheGalleryOnTheNextOpen() {
+        OrbitTheme saved = OrbitThemeStore.savePreset(context,
+                OrbitTheme.custom("Studio saved", "#45CCA6", "#1E4038", "#182722",
+                        "#16211D", "#08110E", false));
+        assertNotNull(saved);
+
+        ActivityController<ThemeStudioActivity> controller = open();
+        assertTrue(texts(controller.get()).contains("Studio saved"));
+        controller.pause().stop().destroy();
+    }
+
+    /** Resetting the active theme is not a reason to throw away somebody's saved work. */
+    @Test public void resettingToOrbitDefaultKeepsSavedPresets() {
+        OrbitThemeStore.savePreset(context, OrbitTheme.custom("Keep me", "#8B7CFF",
+                OrbitTheme.CLASSIC, OrbitTheme.CLASSIC, OrbitTheme.CLASSIC,
+                OrbitTheme.CLASSIC, false));
+        OrbitThemeStore.applyActive(context, OrbitTheme.builtIn(OrbitTheme.ID_EMBER));
+
+        ActivityController<ThemeStudioActivity> controller = open();
+        ThemeStudioActivity activity = controller.get();
+        invoke(activity, "resetToOrbitDefault");
+        apply(activity);
+
+        assertTrue(OrbitThemeStore.active(context).sameColours(OrbitTheme.orbitDefault()));
+        assertEquals("the saved theme must survive", 1, OrbitThemeStore.customPresetCount(context));
+        assertNotNull(OrbitThemeStore.customPresets(context).get(0));
+        assertEquals("Keep me", OrbitThemeStore.customPresets(context).get(0).name);
+        controller.pause().stop().destroy();
+    }
+
+    /** Deleting the preset a theme came from does not change what Orbit looks like. */
+    @Test public void deletingTheAppliedPresetLeavesTheAppearanceAlone() {
+        OrbitTheme saved = OrbitThemeStore.savePreset(context,
+                OrbitTheme.custom("Applied then deleted", "#45CCA6", "#1E4038", "#182722",
+                        "#16211D", "#08110E", false));
+        OrbitThemeStore.applyActive(context, saved);
+        int surface = UiKit.SURFACE;
+
+        assertTrue(OrbitThemeStore.deletePreset(context, saved.id));
+
+        assertEquals(surface, UiKit.SURFACE);
+        assertTrue(OrbitThemeStore.active(context).sameColours(saved));
+    }
+
+    // ---- warnings ----------------------------------------------------------------------------------
+
+    @Test public void aLowContrastDraftIsWarnedAboutButStillAllowed() {
+        ActivityController<ThemeStudioActivity> controller = open();
+        ThemeStudioActivity activity = controller.get();
+
+        // A mid grey bubble. It sits just under the cutoff that decides the foreground, so Orbit
+        // puts light text on it at well under 4.5 to 1 — a real pairing a person could choose.
+        edit(activity, OrbitTheme.orbitDefault().withUserBubble("#9A9A9A"));
+
+        OrbitThemeTokens tokens = OrbitThemeTokens.resolve(context, draft(activity));
+        assertTrue("the pairing must be reported", tokens.hasLowContrast());
+        assertEquals("and only that pairing", 1, tokens.lowContrastChecks().size());
+        assertEquals("Your messages", tokens.lowContrastChecks().get(0).label);
+        assertTrue("the warning must be on screen", texts(activity).contains("Low contrast"));
+        assertTrue("but applying it is still the user's decision", activity.isDirty());
+
+        apply(activity);
+        assertFalse("Orbit must not have refused it", activity.isDirty());
+        assertEquals("#9A9A9A", OrbitThemeStore.active(context).userBubble);
+        controller.pause().stop().destroy();
+    }
+
+    @Test public void aReadableDraftShowsNoWarning() {
+        ActivityController<ThemeStudioActivity> controller = open();
+        ThemeStudioActivity activity = controller.get();
+        select(activity, OrbitTheme.builtIn(OrbitTheme.ID_TIDE));
+        assertFalse(texts(activity).contains("Low contrast"));
+        controller.pause().stop().destroy();
+    }
+
+    // ---- accessibility ------------------------------------------------------------------------------
+
+    /** A screen made of colour must not communicate anything by colour alone. */
+    @Test public void everyColourControlSaysWhatItIsInWords() {
+        ActivityController<ThemeStudioActivity> controller = open();
+        List<String> descriptions = descriptions(controller.get().getWindow().getDecorView());
+        String all = String.join("\n", descriptions);
+
+        assertTrue(all.contains("Accent"));
+        assertTrue("a swatch must never be described only by its hex value",
+                all.matches("(?s).*(Violet|violet|blue|Blue|grey|Grey|black|Black|pink|Pink"
+                        + "|green|Green|red|Red|purple|Purple|teal|Teal|cyan|Cyan|orange|Orange"
+                        + "|amber|Amber|yellow|Yellow|lime|Lime|magenta|Magenta|sky|White).*"));
+        assertTrue("the preview must describe itself", all.contains("Theme preview"));
+        controller.pause().stop().destroy();
+    }
+
+    @Test public void presetSelectionIsAnnouncedAsStateNotOnlyDrawn() {
+        OrbitThemeStore.applyActive(context, OrbitTheme.builtIn(OrbitTheme.ID_MOSS));
+        ActivityController<ThemeStudioActivity> controller = open();
+        String all = String.join("\n", descriptions(controller.get().getWindow().getDecorView()));
+        assertTrue(all.contains("Moss, Orbit preset, selected"));
+        controller.pause().stop().destroy();
+    }
+
+    @Test public void colourNamesAreReadableRatherThanHexadecimal() {
+        assertEquals("White", OrbitColorName.of(Color.WHITE));
+        assertEquals("Black", OrbitColorName.of(Color.BLACK));
+        assertEquals("Grey", OrbitColorName.of(Color.rgb(150, 150, 150)));
+        assertEquals("Orbit's own violet must land in the violet family, not indigo or blue",
+                "Light violet", OrbitColorName.of(Color.rgb(139, 124, 255)));
+        assertEquals("Blue", OrbitColorName.of(Color.rgb(80, 151, 255)));
+        assertEquals("Teal", OrbitColorName.of(Color.rgb(69, 204, 166)));
+        assertTrue(OrbitColorName.of(Color.rgb(11, 7, 20)).toLowerCase().contains("dark"));
+        assertTrue(OrbitColorName.describe("Accent", Color.WHITE).startsWith("Accent, White, #"));
+    }
+
+    // ---- theme files -------------------------------------------------------------------------------
+
+    /**
+     * The rule import must not break: adding a theme is not applying one.
+     *
+     * <p>This is the same rule as every other control on the screen, and it is the one an import
+     * flow is most likely to get wrong, because a file the user deliberately chose feels like an
+     * instruction. It is not. The theme is added and previewed; the app keeps drawing what it was
+     * drawing until Apply.
+     */
+    @Test public void importingAThemeDoesNotChangeWhatOrbitLooksLike() throws Exception {
+        ActivityController<ThemeStudioActivity> controller = open();
+        ThemeStudioActivity activity = controller.get();
+        OrbitTheme before = OrbitThemeStore.active(context);
+
+        OrbitTheme file = OrbitThemeFileCodec.decode(OrbitThemeFileCodec.encode(
+                OrbitTheme.custom("Shared", "#FF3366", "#402030", "#221820",
+                        "#1A1418", "#080608", true)));
+        activity.importTheme(file, true);
+
+        assertTrue("the applied appearance must be untouched",
+                OrbitThemeStore.active(context).sameColours(before));
+        assertEquals("and it must still be the theme it was", before.id,
+                OrbitThemeStore.active(context).id);
+        assertTrue("while the preview now shows the imported theme",
+                draft(activity).sameColours(file));
+        assertTrue("so there is something to apply", activity.isDirty());
+        controller.pause().stop().destroy();
+    }
+
+    @Test public void anImportedThemeBecomesAnEditableCustomPreset() throws Exception {
+        ActivityController<ThemeStudioActivity> controller = open();
+        ThemeStudioActivity activity = controller.get();
+
+        OrbitTheme file = OrbitThemeFileCodec.decode(OrbitThemeFileCodec.encode(
+                OrbitTheme.builtIn(OrbitTheme.ID_NOVA_AMOLED)));
+        activity.importTheme(file, true);
+
+        List<OrbitTheme> saved = OrbitThemeStore.customPresets(context);
+        assertEquals(1, saved.size());
+        assertFalse("an imported theme is never one of Orbit's own", saved.get(0).builtIn);
+        assertFalse(OrbitTheme.isBuiltInId(saved.get(0).id));
+        assertEquals("Nova AMOLED", saved.get(0).name);
+        assertTrue("and it is the same appearance that was exported",
+                OrbitTheme.builtIn(OrbitTheme.ID_NOVA_AMOLED).sameColours(saved.get(0)));
+        assertNotNull("Orbit's own preset is still Orbit's own",
+                OrbitTheme.builtIn(OrbitTheme.ID_NOVA_AMOLED));
+        assertTrue(texts(activity).contains("Nova AMOLED"));
+        controller.pause().stop().destroy();
+    }
+
+    /** An unapplied edit is the user's work. Importing beside it must not throw it away. */
+    @Test public void importingWithUnappliedEditsCanKeepTheDraft() throws Exception {
+        ActivityController<ThemeStudioActivity> controller = open();
+        ThemeStudioActivity activity = controller.get();
+
+        edit(activity, draft(activity).withAccent("#FF8A5B"));
+        OrbitTheme inProgress = draft(activity);
+        assertTrue(activity.isDirty());
+
+        OrbitTheme file = OrbitThemeFileCodec.decode(OrbitThemeFileCodec.encode(
+                OrbitTheme.builtIn(OrbitTheme.ID_TIDE)));
+        activity.importTheme(file, false);
+
+        assertTrue("the edit in progress must survive the import",
+                draft(activity).sameColours(inProgress));
+        assertEquals("while the theme is still added", 1,
+                OrbitThemeStore.customPresetCount(context));
+        controller.pause().stop().destroy();
+    }
+
+    /** Importing the same file twice adds two themes rather than replacing one. */
+    @Test public void importingTheSameFileTwiceAddsTwoThemes() throws Exception {
+        ActivityController<ThemeStudioActivity> controller = open();
+        ThemeStudioActivity activity = controller.get();
+
+        String document = OrbitThemeFileCodec.encode(
+                OrbitTheme.custom("Night", "blue", "classic", "classic", "classic",
+                        "classic", true));
+        activity.importTheme(OrbitThemeFileCodec.decode(document), false);
+        activity.importTheme(OrbitThemeFileCodec.decode(document), false);
+
+        List<OrbitTheme> saved = OrbitThemeStore.customPresets(context);
+        assertEquals(2, saved.size());
+        assertNotEquals(saved.get(0).id, saved.get(1).id);
+        controller.pause().stop().destroy();
+    }
+
+    /** The header offers the file actions without a card of its own taking space from the editor. */
+    @Test public void theHeaderOffersImportAndExport() {
+        ActivityController<ThemeStudioActivity> controller = open();
+        assertTrue(descriptions(controller.get().getWindow().getDecorView())
+                .contains("Theme options"));
+        controller.pause().stop().destroy();
+    }
+
+    /** An exported file names itself after the theme, not after the draft it came from. */
+    @Test public void exportNamesTheFileAfterTheThemeInThePreview() {
+        ActivityController<ThemeStudioActivity> controller = open();
+        ThemeStudioActivity activity = controller.get();
+        select(activity, OrbitTheme.builtIn(OrbitTheme.ID_NOVA_AMOLED));
+        assertEquals("Nova-AMOLED.orbit-theme.json",
+                OrbitThemeFileCodec.fileNameFor(draft(activity)));
+        controller.pause().stop().destroy();
+    }
+
+    // ---- preview -----------------------------------------------------------------------------------
+
+    /**
+     * The Deck sample shows Orbit's Deck mark, tinted by the draft.
+     *
+     * <p>It was a plain accent circle, which told nobody anything about how their theme would treat
+     * an icon on a card. The assertion that matters is the second one: the tint follows the draft
+     * rather than the applied accent, which is the difference between a preview and a screenshot.
+     */
+    @Test public void theDeckSampleUsesOrbitsDeckMarkAndFollowsTheAccent() {
+        ActivityController<ThemeStudioActivity> controller = open();
+        ThemeStudioActivity activity = controller.get();
+
+        select(activity, OrbitTheme.builtIn(OrbitTheme.ID_MOSS));
+        ImageView mark = findImage(findPreview(activity.getWindow().getDecorView()));
+        assertNotNull("the Deck sample must draw an icon", mark);
+        android.graphics.drawable.Drawable icon = mark.getDrawable();
+        assertNotNull("the icon must actually load", icon);
+        assertEquals("and it must be Orbit's own Deck mark", R.drawable.ic_deck,
+                ((org.robolectric.shadows.ShadowDrawable)
+                        org.robolectric.shadow.api.Shadow.extract(icon)).getCreatedFromResId());
+        assertEquals(OrbitThemeTokens.resolve(context, draft(activity)).accent,
+                mark.getImageTintList().getDefaultColor());
+
+        edit(activity, draft(activity).withAccent("#FF3366"));
+        ImageView after = findImage(findPreview(activity.getWindow().getDecorView()));
+        assertEquals("the mark must follow a live accent change",
+                OrbitThemeTokens.resolve(context, draft(activity)).accent,
+                after.getImageTintList().getDefaultColor());
+        controller.pause().stop().destroy();
+    }
+
+    /**
+     * The preview header shows Orbit's own mark, not a coloured circle.
+     *
+     * <p>The dot beside the title was the one thing in the preview that was not a piece of Orbit:
+     * every other element is drawn from the same code the real screen uses, and this one was a
+     * filled circle standing in for the app icon. It is now the mark {@code UiKit} draws in the
+     * Chats header and the overlay, so the sample and the real thing cannot diverge.
+     *
+     * <p>The tint itself is painted in {@code onDraw} and is not readable here, so what this pins
+     * is that the mark is the canonical one, that it is the first thing in the header, and that the
+     * background-filled dot is gone.
+     */
+    @Test public void thePreviewHeaderUsesOrbitsOwnMark() {
+        ActivityController<ThemeStudioActivity> controller = open();
+        ThemeStudioActivity activity = controller.get();
+        View preview = findPreview(activity.getWindow().getDecorView());
+
+        View mark = findByTag(preview, "orbit_mark");
+        assertNotNull("the preview header must draw Orbit's mark", mark);
+        assertNull("the generic accent dot drew itself as a background; the mark does not",
+                mark.getBackground());
+        assertTrue("the mark belongs at the start of the header row",
+                mark.getParent() instanceof ViewGroup
+                        && ((ViewGroup) mark.getParent()).getChildAt(0) == mark);
+
+        // Rebuilt with the draft's accent on every render, which is how it follows a change the
+        // app has not been given yet.
+        select(activity, OrbitTheme.builtIn(OrbitTheme.ID_MOSS));
+        View after = findByTag(findPreview(activity.getWindow().getDecorView()), "orbit_mark");
+        assertNotNull(after);
+        controller.pause().stop().destroy();
+    }
+
+    /** One owner for the satellite tint, so a previewed mark and a live one lift it the same way. */
+    @Test public void theMarksSatelliteTintHasOneDerivation() {
+        assertEquals(UiKit.orbitSatelliteColor(context),
+                UiKit.orbitSatelliteColor(UiKit.accent(context)));
+    }
+
+    // ---- helpers -----------------------------------------------------------------------------------
+
+    private OrbitTheme draft(ThemeStudioActivity activity) {
+        return (OrbitTheme) field(activity, "draft");
+    }
+
+    private void select(ThemeStudioActivity activity, OrbitTheme preset) {
+        invoke(activity, "selectPreset", new Class<?>[]{OrbitTheme.class}, preset);
+    }
+
+    private void edit(ThemeStudioActivity activity, OrbitTheme next) {
+        invoke(activity, "edit", new Class<?>[]{OrbitTheme.class}, next);
+    }
+
+    private void apply(ThemeStudioActivity activity) {
+        invoke(activity, "applyDraft");
+    }
+
+    private void invoke(Activity activity, String name) {
+        invoke(activity, name, new Class<?>[0]);
+    }
+
+    private void invoke(Activity activity, String name, Class<?>[] types, Object... args) {
+        try {
+            java.lang.reflect.Method method =
+                    ThemeStudioActivity.class.getDeclaredMethod(name, types);
+            method.setAccessible(true);
+            method.invoke(activity, args);
+        } catch (Exception e) {
+            throw new AssertionError("could not invoke " + name, e);
+        }
+    }
+
+    private Object field(Activity activity, String name) {
+        try {
+            java.lang.reflect.Field field = ThemeStudioActivity.class.getDeclaredField(name);
+            field.setAccessible(true);
+            return field.get(activity);
+        } catch (Exception e) {
+            throw new AssertionError("could not read " + name, e);
+        }
+    }
+
+    private static View findByTag(View view, Object tag) {
+        if (tag.equals(view.getTag())) return view;
+        if (view instanceof ViewGroup) {
+            ViewGroup group = (ViewGroup) view;
+            for (int i = 0; i < group.getChildCount(); i++) {
+                View found = findByTag(group.getChildAt(i), tag);
+                if (found != null) return found;
+            }
+        }
+        return null;
+    }
+
+    private static ImageView findImage(View view) {
+        if (view instanceof ImageView) return (ImageView) view;
+        if (view instanceof ViewGroup) {
+            ViewGroup group = (ViewGroup) view;
+            for (int i = 0; i < group.getChildCount(); i++) {
+                ImageView found = findImage(group.getChildAt(i));
+                if (found != null) return found;
+            }
+        }
+        return null;
+    }
+
+    private static ThemePreviewView findPreview(View view) {
+        if (view instanceof ThemePreviewView) return (ThemePreviewView) view;
+        if (view instanceof ViewGroup) {
+            ViewGroup group = (ViewGroup) view;
+            for (int i = 0; i < group.getChildCount(); i++) {
+                ThemePreviewView found = findPreview(group.getChildAt(i));
+                if (found != null) return found;
+            }
+        }
+        return null;
+    }
+
+    private static int previewBackground(View view) {
+        android.graphics.drawable.Drawable background = view.getBackground();
+        if (background instanceof android.graphics.drawable.GradientDrawable) {
+            android.content.res.ColorStateList colors =
+                    ((android.graphics.drawable.GradientDrawable) background).getColor();
+            if (colors != null) return colors.getDefaultColor();
+        }
+        return 0;
+    }
+
+    private static List<String> texts(Activity activity) {
+        List<String> out = new ArrayList<>();
+        collectText(activity.getWindow().getDecorView(), out);
+        return out;
+    }
+
+    private static void collectText(View view, List<String> into) {
+        if (view instanceof TextView) {
+            CharSequence text = ((TextView) view).getText();
+            if (text != null) into.add(text.toString());
+        }
+        if (view instanceof ViewGroup) {
+            ViewGroup group = (ViewGroup) view;
+            for (int i = 0; i < group.getChildCount(); i++) collectText(group.getChildAt(i), into);
+        }
+    }
+
+    private static List<String> descriptions(View view) {
+        List<String> out = new ArrayList<>();
+        collectDescriptions(view, out);
+        return out;
+    }
+
+    private static void collectDescriptions(View view, List<String> into) {
+        CharSequence description = view.getContentDescription();
+        if (description != null) into.add(description.toString());
+        if (view instanceof ViewGroup) {
+            ViewGroup group = (ViewGroup) view;
+            for (int i = 0; i < group.getChildCount(); i++) {
+                collectDescriptions(group.getChildAt(i), into);
+            }
+        }
+    }
+}

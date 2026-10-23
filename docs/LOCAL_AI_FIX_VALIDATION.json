@@ -1,0 +1,66 @@
+{
+  "baseVersion": "0.8.4.1",
+  "upstreamBaseCommit": "32655b8cd9dc6149b4264b476c8db0d6aab9cff2",
+  "build": "Release, assembleRelease and lintVitalRelease succeeded",
+  "localization": "2619 paired UI resources; 3541 original English fallbacks validated",
+  "tests": {
+    "app": {
+      "suites": 11,
+      "tests": 256,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "classes": [
+        "com.orbit.assistant.OrbitLocalVisibilityTest",
+        "com.orbit.assistant.OrbitLocalRemovalTest",
+        "com.orbit.assistant.OrbitLocalLiveProgressTest",
+        "com.orbit.assistant.OrbitLocalStateTest",
+        "com.orbit.assistant.ChineseLocalizationTest",
+        "com.orbit.assistant.OrbitLocalTrustTest",
+        "com.orbit.assistant.OrbitLocalCapabilitiesTest",
+        "com.orbit.assistant.OrbitLocalProgressTest",
+        "com.orbit.assistant.OrbitLocalCacheTest",
+        "com.orbit.assistant.OrbitLocal2Test",
+        "com.orbit.assistant.LocalAiConnectionRegressionTest"
+      ]
+    },
+    "local": {
+      "suites": 4,
+      "tests": 122,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "classes": [
+        "com.orbit.assistant.local.ComponentModelStoreTest",
+        "com.orbit.assistant.local.ComponentDownloadStateTest",
+        "com.orbit.assistant.local.ComponentActionModelTest",
+        "com.orbit.assistant.local.ComponentWorkQueryTest"
+      ]
+    }
+  },
+  "artifacts": {
+    "main": {
+      "package": "com.orbit.assistant",
+      "versionCode": 818,
+      "versionName": "0.8.4.1",
+      "size": 39909393,
+      "sha256": "59414a11223696e4c732d3353a20a66731bad17ad9668d94b6edbeb9f3815950",
+      "certificateSha256": "e5e6f7745d4e088ee36511f762491e7bab7ea887d4dfd4a41ff993ee06ca4f0f"
+    },
+    "component": {
+      "package": "com.orbit.assistant.local",
+      "versionCode": 818,
+      "versionName": "0.8.4.1",
+      "size": 35425596,
+      "sha256": "ed78a67e99bb215acd150da4b67a7150b8d9d8ae7a370c8981d60f6ffc05e258",
+      "certificateSha256": "e5e6f7745d4e088ee36511f762491e7bab7ea887d4dfd4a41ff993ee06ca4f0f"
+    },
+    "embeddedComponent": "identical to signed component; all manifest fields verified"
+  },
+  "originalBackendAudit": "12 backend source files (all companion Java files included) are byte-identical between the original Chinese deliverable and upstream; no translated protocol or model identifiers",
+  "modelMetadataCheck": {
+    "Qwen2.5-1.5B-Instruct": "Hugging Face tree metadata size and LFS SHA-256 match original pins",
+    "Qwen2.5-0.5B-Instruct": "Hugging Face tree metadata size and LFS SHA-256 match original pins"
+  },
+  "deviceValidation": "No physical Android/OnePlus device attached. Full on-device model download and inference not executed."
+}
