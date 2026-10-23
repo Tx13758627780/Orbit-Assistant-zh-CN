@@ -1,0 +1,30 @@
+name: 发布简体中文 OnePlus Dock fix2
+
+on:
+  push:
+    branches: [main]
+    paths: ['tools/releases/fix2-publish-ready.json']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: publish-zh-cn-fix2
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    if: github.repository == 'Tx13758627780/Orbit-Assistant-zh-CN' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: write
+    steps:
+      - name: 检出本次源码
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - name: 校验、提交原始 APK 并发布正式发行版
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: python3 tools/releases/publish_fix2.py
